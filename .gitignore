@@ -1,0 +1,19 @@
+# Secrets - never commit. The bot token is a bearer credential with no second factor.
+.env
+*.env
+!.env.example
+
+# Local database files
+*.db
+*.db-journal
+*.sqlite
+
+# Build output
+build/
+.gradle/
+!gradle/wrapper/gradle-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/

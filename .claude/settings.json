@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(gradle:*)",
+      "Bash(./gradlew:*)",
+      "Bash(java:*)",
+      "Bash(javac:*)",
+      "Bash(kotlinc:*)",
+      "Bash(which:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(curl -s https://tonapi.io/*)",
+      "Bash(curl -s https://testnet.tonapi.io/*)"
+    ]
+  }
+}
