@@ -186,8 +186,9 @@ Anywhere the bot is — a group, or its own private chat:
 | `/wallet` | shows the address, so a tipper can check where the money goes |
 | `/link` | the bot's own link, for the owner to share |
 
-Tapping an amount posts a payment card with **one button per wallet** — Tonkeeper, Tonhub and
-MyTonWallet — plus a plain `ton://transfer` link in the message for anything else. The tipper
+Tapping an amount posts a payment card with **one button per wallet** — Tonkeeper, Tonhub,
+MyTonWallet and Telegram Wallet — plus a plain `ton://transfer` link for anything else, and the
+address/amount/comment as copy-paste lines for paying by hand. The tipper
 taps the wallet they already have, it opens with the address, amount and a reference comment
 already filled in, and they confirm. Within about ten
 seconds the bot announces that the tip arrived — **in the same chat the tip was asked for**, so
@@ -262,7 +263,7 @@ double-payout guard with it. On those, point `TIPBOT_JDBC_URL` at Postgres; noth
 ## Development
 
 ```bash
-./gradlew test      # 118 tests
+./gradlew test      # 120 tests
 ./gradlew runBot    # start the bot
 ```
 

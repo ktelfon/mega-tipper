@@ -108,9 +108,29 @@ class CommandHandlerTest {
         val reply = handler.handleCallback(TIPPER, TIPPER, "tip:1000000000", NOW)
 
         val urls = reply.buttons.map { (it as CommandHandler.Button.Url).url }
-        assertEquals(TipLink.WALLETS.size, urls.size, "a tipper should tap the wallet they already have")
+        assertEquals(TipLink.WALLETS.size + 1, urls.size, "the deep-linkable wallets, plus Telegram Wallet")
         assertTrue(urls.all { it.startsWith("https://") }, urls.toString())
         assertTrue(reply.text.contains("ton://transfer/"), "and anything else uses the scheme link")
+    }
+
+    @Test
+    fun `Telegram Wallet is offered even though it cannot be deep-linked`() {
+        // It is a Mini App: no ton:// scheme, so the fallback link in the body does nothing for
+        // its users, and no documented transfer link exists. Opening it is better than nothing.
+        val reply = handler.handleCallback(TIPPER, TIPPER, "tip:1000000000", NOW)
+
+        val labels = reply.buttons.map { it.label }
+        assertTrue(labels.contains("Telegram Wallet"), labels.toString())
+    }
+
+    @Test
+    fun `the three values needed to pay by hand are all in the message`() {
+        val reply = handler.handleCallback(TIPPER, TIPPER, "tip:1000000000", NOW)
+        val tip = store.pendingTips(NOW).single()
+
+        assertTrue(reply.text.contains("Address: $UQ"), reply.text)
+        assertTrue(reply.text.contains("Amount:  1 TON"), reply.text)
+        assertTrue(reply.text.contains("Comment: ${tip.nonce}"), reply.text)
     }
 
     @Test

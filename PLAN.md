@@ -190,10 +190,25 @@ Telegram rejects inline-button URLs whose scheme is not http(s) or tg, so a `ton
 wallet including ones nobody here has heard of, and each supported wallet contributes its own
 https button: Tonkeeper, Tonhub, MyTonWallet.
 
-A wallet is listed only if its universal-link format is documented at docs.ton.org or by the
-wallet itself. A guessed URL produces a button that either fails to open or — far worse — opens
-*without the comment*, sending real money that can never be matched to a tip. Telegram Wallet
-and Trust Wallet are deliberately absent for that reason.
+A wallet gets a *prefilled* button only if its universal-link format is documented at
+docs.ton.org or by the wallet itself. A guessed URL either fails to open or opens without the
+comment — which leaves the tip unmatched and unannounced. Note the money is **not** lost in that
+case: the address in the link is the owner's, so it still arrives. Only the matching breaks.
+
+### Telegram Wallet is the awkward one
+
+`@wallet` is a **Mini App**. It registers no `ton://` scheme, so the fallback link in the message
+body does nothing for its users, and it publishes no documented transfer deep link. Since the
+audience of a Telegram tip bot is disproportionately likely to use it, leaving it out was worse
+than the alternative: it gets a button that simply opens Wallet, and the invoice carries the
+address, amount and comment as three copy-paste lines.
+
+Manual entry is tolerable precisely because of the failure mode above — the only unrecoverable
+mistake is a wrong *address*, and that is the one field a tipper pastes verbatim.
+
+**The proper fix is TON Connect**, which TON Space supports and which carries a comment payload.
+That is a real integration — HTTP bridge, connect handshake, session storage — not a two-line
+addition, so it is deferred rather than faked.
 
 The `ton://` link also carries `exp=<expiresAt>`, so a wallet can refuse a payment this bot
 would decline to credit anyway.
@@ -366,7 +381,7 @@ Genuinely small once 0–5 exist.
 ## Running it
 
 ```bash
-./gradlew test                 # 118 tests, all green
+./gradlew test                 # 120 tests, all green
 ./gradlew runBot               # the Telegram bot
 ./gradlew run --args="<address> <comment> <amountTon> [timeoutSec] [pollSec]"
 ```

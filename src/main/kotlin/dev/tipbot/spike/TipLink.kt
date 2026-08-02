@@ -38,6 +38,23 @@ object TipLink {
     )
 
     /**
+     * Telegram's own wallet, which cannot be a [Wallet] above.
+     *
+     * @wallet is a Mini App, so it registers no `ton://` scheme - the fallback link in the
+     * message body does nothing for its users - and it publishes no documented transfer deep
+     * link, so there is no URL that opens it with the fields filled in. This button only opens
+     * Wallet; the tipper copies the three values from the message.
+     *
+     * Manual entry is acceptable here in a way a guessed deep link is not. The worst case is a
+     * mistyped *comment*, which leaves the tip unmatched and unannounced - the money still
+     * reaches the owner, because the address is theirs either way. Getting the address wrong is
+     * the only unrecoverable mistake, and it is the one field a tipper can paste verbatim.
+     *
+     * The real fix is TON Connect, which TON Space supports and which carries a comment payload.
+     */
+    val TELEGRAM_WALLET = "https://t.me/wallet"
+
+    /**
      * The scheme-level link, for any wallet not listed in [WALLETS].
      *
      * @param expiresAt unix seconds the invoice dies. Passed as `exp` so a wallet can refuse a

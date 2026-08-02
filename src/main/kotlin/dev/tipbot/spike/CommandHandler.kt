@@ -181,16 +181,21 @@ class CommandHandler(
             Pick your wallet below. Using something else? Open this link:
             ${TipLink.tonUri(address, amountNano, tip.nonce, tip.expiresAt)}
 
-            Leave the comment exactly as it is - "${tip.nonce}" is how I recognise your payment.
-            Change it and the tip cannot be matched.
+            Paying by hand, in Telegram Wallet or anywhere else? Copy these three:
+            Address: $address
+            Amount:  $amount TON
+            Comment: ${tip.nonce}
 
-            This request is good for $minutes minutes.
+            The comment is how I recognise your payment - change it and the tip cannot be
+            matched. This request is good for $minutes minutes.
             """.trimIndent(),
             // One button per wallet, so a tipper taps the one they already have instead of being
             // sent to install a particular app.
             buttons = TipLink.WALLETS.map { wallet ->
                 Button.Url(wallet.label, wallet.url(address, amountNano, tip.nonce))
-            },
+            // Opens Telegram Wallet, which cannot be deep-linked into a prefilled transfer.
+            // The tipper pastes the three values above.
+            } + Button.Url("Telegram Wallet", TipLink.TELEGRAM_WALLET),
         )
     }
 
