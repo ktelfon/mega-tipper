@@ -9,6 +9,9 @@ repositories {
 
 dependencies {
     implementation("com.fasterxml.jackson.core:jackson-databind:2.17.2")
+    // YAML for the operator's wallet file. Chosen over JSON because that file is hand-edited
+    // and needs comments explaining which group each chat id belongs to.
+    implementation("com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.17.2")
     // ton4j's address module only - handles base64url + CRC16 for TON addresses.
     // Deliberately not hand-rolling checksum code in the path that decides where money goes.
     implementation("io.github.neodix42:address:1.0.0")

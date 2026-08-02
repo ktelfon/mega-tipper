@@ -280,6 +280,54 @@ is paid either way — the exposure is mis-attribution, not theft — and it buy
 
 ---
 
+## Operator-run configuration ✅ DONE
+
+The deployment model changed, and it changed the product. This is **not** a self-serve bot
+people sign up for. A group owner asks the operator for a tip bot; the operator adds an entry to
+`tipbot.yaml` and deploys. Nobody in the group pastes an address, and nobody in the group can
+change one.
+
+```yaml
+allowSelfSetup: false
+wallets:
+  - chatId: -1001234567890
+    label: "Bob's Crypto Chat"
+    address: "EQCD39VS..."
+```
+
+### The file is the source of truth
+
+Every entry is re-applied to `creators` on each boot, so *edit and restart* is the whole
+configuration workflow. The database stops being state anyone manages and becomes just where the
+poller reads from.
+
+### A bad address aborts startup
+
+Validation happens at boot, not on first payment. A typo'd TON address is a valid-looking string
+that silently swallows every tip sent to it, so a deployment that would do that must refuse to
+start — naming the offending entry by its label. Duplicate chat ids are refused too, rather than
+letting the last one silently win.
+
+### `/setup` is off by default
+
+`allowSelfSetup: false` means no message can change a wallet — not from a group admin, not from a
+DM, not from a bare pasted address. The flag exists because the operator may want to hand that
+power back later; the *who is allowed to change what* permission model is deliberately deferred.
+
+### `/chatid`
+
+Added because the config file is unusable without it: the operator is typically not in the
+customer's group and has no other way to learn its id. Available to anyone — a chat id is not a
+secret, and needing an admin to fetch it would defeat the point.
+
+### YAML over JSON
+
+The file is hand-edited and needs comments saying which group each opaque negative number is.
+Parsed from a `JsonNode` by hand rather than data-bound, so a mistake reads as
+*"entry 2 (Bob's Chat): 'address' is missing"* instead of a Jackson stack trace.
+
+---
+
 ## Step 6 — Production hardening
 
 Webhooks instead of polling, rate limits, expiry sweeper for dead invoices.
@@ -299,7 +347,7 @@ Genuinely small once 0–5 exist.
 ## Running it
 
 ```bash
-./gradlew test                 # 117 tests, all green
+./gradlew test                 # 137 tests, all green
 ./gradlew runBot               # the Telegram bot
 ./gradlew run --args="<address> <comment> <amountTon> [timeoutSec] [pollSec]"
 ```
@@ -326,6 +374,7 @@ Env vars:
 | `TONAPI_BASE_URL` | `https://tonapi.io` | use `https://testnet.tonapi.io` for testnet |
 | `TONAPI_KEY` | — | optional bearer token, raises the free rate limit |
 | `TIP_LOOKBACK_SEC` | `300` | how far back the invoice window opens. **Testing only** — a narrow window in production is what stops replay |
+| `TIPBOT_WALLETS` | `tipbot.yaml` | the operator's wallet file |
 | `TIP_POLL_SEC` | `10` | how often the poller checks. Raise it, or set `TONAPI_KEY`, before pointing many creators at one deployment |
 
 ### Environment note

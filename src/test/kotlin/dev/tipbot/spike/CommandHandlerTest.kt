@@ -21,7 +21,9 @@ class CommandHandlerTest {
     fun setUp() {
         dataSource = Database.connect("jdbc:sqlite:${dir.resolve("test.db")}")
         store = TipStore(dataSource)
-        handler = CommandHandler(store, testnet = false, botUsername = "mega_tipper_bot")
+        // These cover the self-setup conversation, so it is switched on. Operator mode - the
+        // default, where wallets come from the file - is covered at the bottom of this class.
+        handler = CommandHandler(store, testnet = false, botUsername = "mega_tipper_bot", allowSelfSetup = true)
     }
 
     @AfterTest
@@ -400,6 +402,81 @@ class CommandHandlerTest {
 
         assertTrue(reply.text.contains("amount"), reply.text)
         assertTrue(store.pendingTips(NOW).isEmpty())
+    }
+
+    // --- operator mode ------------------------------------------------------------------
+    //
+    // The default. Wallets come from the operator's file, and nothing said in Telegram can
+    // change one - because the person running the bot is not the person in the group.
+
+    private val operatorBot
+        get() = CommandHandler(store, testnet = false, botUsername = "mega_tipper_bot", allowSelfSetup = false)
+
+    @Test
+    fun `setup cannot change a wallet when the operator owns the config`() {
+        val reply = operatorBot.handle(CHAT, "/setup $EQ", NOW)!!
+
+        assertTrue(reply.text.contains("runs it"), reply.text)
+        assertNull(store.findCreator(CHAT), "chat must never override the operator's file")
+    }
+
+    @Test
+    fun `a bare address is ignored rather than registered`() {
+        assertNull(operatorBot.handle(CHAT, EQ, NOW))
+        assertNull(store.findCreator(CHAT))
+    }
+
+    @Test
+    fun `a group admin cannot redirect the group's earnings either`() {
+        val reply = operatorBot.handle(
+            CommandHandler.Incoming(
+                chatId = GROUP, userId = TIPPER, text = "/setup $EQ",
+                isGroup = true, senderIsAdmin = { true },
+            ),
+            NOW,
+        )!!
+
+        assertTrue(reply.text.contains("runs it"), reply.text)
+        assertNull(store.findCreator(GROUP))
+    }
+
+    @Test
+    fun `chatid reports the id the operator needs for the wallet file`() {
+        val group = operatorBot.handle(
+            CommandHandler.Incoming(chatId = GROUP, userId = TIPPER, text = "/chatid", isGroup = true),
+            NOW,
+        )!!
+
+        assertTrue(group.text.contains(GROUP.toString()), group.text)
+    }
+
+    @Test
+    fun `a wallet placed by the operator is tippable with no setup conversation`() {
+        // Exactly the deployment story: the file is applied, and the group just works.
+        WalletDirectory.apply(
+            WalletDirectory.Directory(
+                listOf(WalletDirectory.Entry(GROUP, "Bob's Chat", RAW)),
+                allowSelfSetup = false,
+            ),
+            store,
+            NOW,
+        )
+
+        val reply = operatorBot.handle(
+            CommandHandler.Incoming(chatId = GROUP, userId = TIPPER, text = "/tip 1", isGroup = true),
+            NOW,
+        )!!
+
+        val tip = store.pendingTips(NOW).single()
+        assertEquals(GROUP, tip.creatorChatId)
+        assertEquals(RAW, tip.rawAddress)
+        assertTrue(reply.text.contains(tip.nonce), reply.text)
+    }
+
+    @Test
+    fun `help does not advertise a command the operator has switched off`() {
+        assertTrue(!operatorBot.handle(CHAT, "/help", NOW)!!.text.contains("/setup"))
+        assertTrue(handler.handle(CHAT, "/help", NOW)!!.text.contains("/setup"))
     }
 
     private companion object {

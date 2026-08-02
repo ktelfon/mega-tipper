@@ -17,6 +17,7 @@ data class Config(
     val jdbcUser: String?,
     val jdbcPassword: String?,
     val pollSeconds: Long,
+    val walletFile: String,
 ) {
     val testnet: Boolean get() = tonApiBaseUrl.contains("testnet")
 
@@ -44,6 +45,7 @@ data class Config(
                 // anonymous rate limit for a handful of creators. Raise it, or set TONAPI_KEY,
                 // before pointing many creators at one deployment.
                 pollSeconds = get("TIP_POLL_SEC")?.toLongOrNull()?.coerceAtLeast(1) ?: 10L,
+                walletFile = get("TIPBOT_WALLETS") ?: "tipbot.yaml",
             )
         }
 
@@ -65,6 +67,6 @@ data class Config(
     /** Keeps the token out of logs and crash reports. */
     override fun toString(): String =
         "Config(tonApiBaseUrl=$tonApiBaseUrl, testnet=$testnet, jdbcUrl=$jdbcUrl, " +
-            "pollSeconds=$pollSeconds, tonApiKey=${if (tonApiKey != null) "set" else "unset"}, " +
+            "pollSeconds=$pollSeconds, walletFile=$walletFile, tonApiKey=${if (tonApiKey != null) "set" else "unset"}, " +
             "telegramBotToken=***)"
 }

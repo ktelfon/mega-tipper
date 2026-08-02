@@ -1,0 +1,27 @@
+# Wallets this deployment collects tips for.
+#
+# Copy to tipbot.yaml, fill in, restart the bot. This file is the source of truth: every
+# entry is re-applied to the database on each boot, so editing here and restarting is the
+# whole configuration workflow.
+#
+# A bad address aborts startup rather than letting the bot run and silently swallow tips,
+# so if it starts, every wallet below is real and checksum-valid.
+
+# Whether anyone can change a wallet from inside Telegram with /setup.
+# Leave false for an operator-run deployment - otherwise a group admin could point their
+# group's earnings at a different wallet without telling you.
+allowSelfSetup: false
+
+wallets:
+  # A group. Add the bot to it, send /chatid there, and paste the number here.
+  # Group ids are negative; supergroups look like -100...
+  - chatId: -1001234567890
+    label: "Bob's Crypto Chat"          # for your logs only, name it however you like
+    address: "EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N"
+
+  # A person, so that replying to them in any group with /tip pays them directly.
+  # A user id is positive, and is the same number as their private chat with the bot.
+  # EQ..., UQ... and raw 0:... are all accepted - they are the same wallet either way.
+  - chatId: 4242424242
+    label: "@bob"
+    address: "EQCXJkOVvWWiVaQpsRMmyEEot9cP_teUmrrjA21Qa6OGIeng"

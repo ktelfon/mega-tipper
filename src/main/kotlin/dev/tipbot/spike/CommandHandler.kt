@@ -19,6 +19,12 @@ class CommandHandler(
     private val store: TipStore,
     private val testnet: Boolean,
     private val botUsername: String,
+    /**
+     * Whether anyone may set a wallet by chatting to the bot. Off by default, because this
+     * deployment model is operator-run: wallets come from the operator's file, and a group
+     * owner who could change one from inside the group is a way to lose someone's earnings.
+     */
+    private val allowSelfSetup: Boolean = false,
 ) {
 
     /**
@@ -74,9 +80,10 @@ class CommandHandler(
         val argument = trimmed.substringAfter(' ', missingDelimiterValue = "").trim()
 
         if (!isCommand) {
-            // In a private chat, a bare address is a registration. In a group it is somebody
-            // talking to their friends, and must not be answered.
-            return if (message.isGroup) null else registerWallet(message.chatId, trimmed, now)
+            // In a private chat with self-setup on, a bare address is a registration. In a
+            // group it is somebody talking to their friends, and must not be answered.
+            return if (message.isGroup || !allowSelfSetup) null
+            else registerWallet(message.chatId, trimmed, now)
         }
 
         return when (verb) {
@@ -84,6 +91,9 @@ class CommandHandler(
             "start" -> if (argument.isNotEmpty() && !message.isGroup) startPayload(argument) else welcome(message)
             "help" -> welcome(message)
             "setup" -> setup(message, argument, now)
+            // How the operator finds the id to put in the wallet file. Deliberately available
+            // to anyone: a chat id is not a secret, and the operator is often not in the group.
+            "chatid" -> Reply("Chat id: `${message.chatId}`\n\nGive this to whoever runs the bot.")
             "wallet" -> showWallet(message)
             "link" -> showShareLink(message)
             "tip" -> tipCommand(message, argument, now)
@@ -112,27 +122,29 @@ class CommandHandler(
 
     private fun welcome(message: Incoming) = Reply(
         if (message.isGroup) {
-            """
-            I take tips in TON, straight from one wallet to another. Nothing is ever held here.
-
-            /tip - tip this group's wallet
-            /tip - as a reply to someone, tips them instead
-            /setup - admins only: set the wallet this group's tips go to
-            """.trimIndent()
+            buildString {
+                appendLine("I take tips in TON, straight from one wallet to another. Nothing is ever held here.")
+                appendLine()
+                appendLine("/tip - tip this group's wallet")
+                appendLine("/tip - as a reply to someone, tips them instead")
+                append(if (allowSelfSetup) "/setup - admins only: set the wallet tips go to" else "/chatid - the id this chat is known by")
+            }
         } else {
-            """
-            Hi! I take tips in TON and send them straight to your wallet.
-
-            Nothing is held for you - tips go wallet to wallet, and I only watch the chain to
-            confirm they arrived.
-
-            /setup - register the wallet that receives your tips
-            /wallet - show the wallet I have on file
-            /link - get the tip link to share with your audience
-            /tip <amount> - send yourself a test tip
-
-            Add me to a group and people can tip with /tip right there.
-            """.trimIndent()
+            buildString {
+                appendLine("Hi! I take tips in TON and send them straight to the right wallet.")
+                appendLine()
+                appendLine("Nothing is held for anyone - tips go wallet to wallet, and I only watch the")
+                appendLine("chain to confirm they arrived.")
+                appendLine()
+                if (allowSelfSetup) appendLine("/setup - register the wallet that receives your tips")
+                appendLine("/wallet - show the wallet I have on file")
+                appendLine("/tip <amount> - send yourself a test tip")
+                appendLine("/chatid - the id this chat is known by")
+                if (!allowSelfSetup) {
+                    appendLine()
+                    append("Wallets are configured by whoever runs this bot - ask them to add you.")
+                }
+            }
         }
     )
 
@@ -141,6 +153,13 @@ class CommandHandler(
      * any member could point the group's earnings at their own wallet.
      */
     private fun setup(message: Incoming, argument: String, now: Long): Reply {
+        if (!allowSelfSetup) {
+            return Reply(
+                "Wallets on this bot are set by whoever runs it, not from chat.\n\n" +
+                    "Ask them to add this chat, and send them the id from /chatid."
+            )
+        }
+
         if (message.isGroup && !message.senderIsAdmin()) {
             return Reply("Only an admin can set the wallet this group's tips go to.")
         }
@@ -227,7 +246,7 @@ class CommandHandler(
                     recipient,
                     label,
                     // Whose problem it is to fix depends on who was being tipped.
-                    if (message.replyToUserId != null) SETUP_IN_DM else "An admin can set one with /setup here.",
+                    if (message.replyToUserId != null) setupHintForPerson else setupHintForGroup,
                 )
                 1 -> withAmount(parts[0]) { nano -> issueInvoice(recipient, message.userId, nano, now) }
                 else -> Reply("Send /tip on its own to pick an amount, or /tip 1 to go straight there.")
@@ -261,7 +280,7 @@ class CommandHandler(
      * in, and [setupHint] tells the right person how to fix a missing wallet - which differs,
      * since a group's wallet is set by an admin in the group and a person's is set in a DM.
      */
-    private fun tipMenu(creatorChatId: Long, label: String, setupHint: String = SETUP_IN_DM): Reply {
+    private fun tipMenu(creatorChatId: Long, label: String, setupHint: String = setupHintForPerson): Reply {
         store.findCreator(creatorChatId)
             ?: return Reply("There's no wallet set up for $label yet. $setupHint")
 
@@ -317,11 +336,17 @@ class CommandHandler(
         )
     }
 
+    /** Told to whoever tried to tip, so a missing wallet reads as "not yet" rather than "broken". */
+    private val setupHintForPerson: String
+        get() = if (allowSelfSetup) "They can start receiving tips by sending me /setup in a private chat."
+        else "Whoever runs this bot can add them."
+
+    private val setupHintForGroup: String
+        get() = if (allowSelfSetup) "An admin can set one with /setup here."
+        else "Whoever runs this bot can add it - send them the id from /chatid."
+
     private companion object {
         const val CALLBACK_TIP = "tip"
-
-        /** Doubles as the growth loop: every un-set-up recipient is told how to start earning. */
-        const val SETUP_IN_DM = "They can start receiving tips by sending me /setup in a private chat."
 
         /** Small enough that the first one is an easy impulse tap in a group. */
         val PRESET_NANO = listOf(

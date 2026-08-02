@@ -3,6 +3,10 @@
 *.env
 !.env.example
 
+# The operator's real wallet file - customer chat ids and payout addresses.
+tipbot.yaml
+!tipbot.yaml.example
+
 # Local database files
 *.db
 *.db-journal

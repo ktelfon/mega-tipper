@@ -14,6 +14,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMa
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow
 import org.telegram.telegrambots.meta.generics.TelegramClient
+import java.io.File
 import java.time.Instant
 
 /**
@@ -161,7 +162,26 @@ fun main() {
     // with the bot the token actually belongs to.
     val username = client.execute(GetMe()).userName
 
-    val handler = CommandHandler(store, testnet = config.testnet, botUsername = username)
+    // The operator's wallet file is authoritative and re-applied on every boot, so editing it
+    // and restarting is the whole configuration workflow. A bad address aborts startup rather
+    // than running a deployment that silently swallows tips.
+    val directory = WalletDirectory.load(File(config.walletFile), config.testnet)
+    WalletDirectory.apply(directory, store, Instant.now().epochSecond)
+
+    if (directory.entries.isEmpty()) {
+        println("No wallets configured in ${config.walletFile}. Add one, or send /chatid in a chat to find its id.")
+    } else {
+        println("Collecting tips for ${directory.entries.size} chat(s):")
+        directory.entries.forEach { println("  ${it.chatId}  ${it.label}  -> ${it.raw}") }
+    }
+    if (directory.allowSelfSetup) println("Self-setup is ON: /setup can change a wallet from chat.")
+
+    val handler = CommandHandler(
+        store,
+        testnet = config.testnet,
+        botUsername = username,
+        allowSelfSetup = directory.allowSelfSetup,
+    )
 
     // The chain watcher runs alongside the bot rather than inside it: confirming a payment is
     // driven by the blockchain, not by anyone sending a message, so it cannot live in the
