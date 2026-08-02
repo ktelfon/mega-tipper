@@ -16,6 +16,14 @@ JVMs, not how big one server needs to be.
 **A small VPS with Docker.** Hetzner CX22 or equivalent — roughly €4/month, 4 GB RAM, a real
 disk. At 78 MiB each that is **40-odd bots on one box** — about 9 cents per customer per month.
 
+A **1 GB droplet runs this fine** (measured: 79 MiB in use), but 1 GB is not enough to *compile*
+Kotlin — add swap before the first build or Docker will be OOM-killed mid-build:
+
+```bash
+fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile
+echo "/swapfile none swap sw 0 0" >> /etc/fstab
+```
+
 ### Why 78 MB and not less
 
 That is a JVM floor, not this application's data — the bot itself holds almost nothing. A Go or
@@ -53,6 +61,7 @@ cat > .env <<'ENV'
 MDEFMAN_BOT_TOKEN=<token from @BotFather>
 # TONAPI_KEY=<optional, raises the rate limit for every bot on this host>
 ENV
+chmod 600 .env
 
 # 4. The customer's wallet
 cp tipbot.yaml.example customers/mdefman.yaml
@@ -73,6 +82,24 @@ Poller started, checking every 10s
 
 If the wallet address has a typo, **it refuses to start and names the problem** rather than
 running and silently swallowing tips.
+
+---
+
+## File permissions — the one that will bite you
+
+```bash
+chmod 600 .env                     # a real secret: the bot token
+chmod 644 customers/*.yaml         # bind-mounted, and read by an unprivileged container user
+```
+
+The container deliberately runs as a non-root user, so a `600` wallet file owned by root on the
+host is **unreadable inside the container** and the bot crash-loops with
+`tipbot.yaml is not valid YAML: Permission denied`. That message names the wrong cause; the file
+is fine, the permissions are not.
+
+`644` is right here: a wallet file holds a display name and an address that is public on-chain
+anyway. The token is the actual secret, and it is passed as an environment variable rather than
+mounted, so it stays `600` and never appears in the filesystem the container can see.
 
 ---
 
