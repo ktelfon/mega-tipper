@@ -3,7 +3,7 @@
 Non-custodial tipping bot. Money moves wallet-to-wallet; the backend only watches the
 chain, validates payments, and notifies. No pooled funds, no custody.
 
-**Current step: 5 — wire the poller to the database**
+**Current step: 6 — production hardening**
 
 ---
 
@@ -14,8 +14,8 @@ chain, validates payments, and notifies. No pooled funds, no custody.
 - [x] **Step 2 — Persistence**
 - [x] **Step 3 — Telegram bot skeleton**
 - [x] **Step 4 — Tip request generation**
-- [ ] **Step 5 — Wire poller to DB** ← current
-- [ ] Step 6 — Production hardening
+- [x] **Step 5 — Wire poller to DB**
+- [ ] **Step 6 — Production hardening** ← current
 - [ ] Step 7 — File-selling extension
 
 ---
@@ -206,10 +206,35 @@ amounts outside 0.01–10 000 TON are refused as dust or a fat-fingered digit.
 
 ---
 
-## Step 5 — Wire poller to DB
+## Step 5 — Wire poller to DB ✅ DONE
 
-Promote the spike's loop into a background worker: poll each creator with a pending invoice,
-on match mark `CONFIRMED`, fire the Telegram notification. Where step 0 stops being a spike.
+Where step 0 stops being a spike. `TipPoller` runs on a daemon thread beside the bot -
+confirming a payment is driven by the blockchain, not by anyone sending a message, so it
+cannot live in the update loop. `TonApiClient` is now shared by the poller and the spike, so
+there is one request path rather than two that can drift.
+
+`pollOnce()` is a single pass returning what it confirmed, so all 16 tests drive it against
+canned TonAPI responses — no network, no sleeping, no clock.
+
+### What one pass does
+
+1. sweep expired invoices, so dead ones stop being watched
+2. read pending tips, **grouped by address** — one request per creator, not per tip, because
+   two tippers at once is the normal case and must not double the call rate
+3. `TipMatcher` against each invoice, unchanged from step 0
+4. `store.confirm()`, and **only if it returns true**, notify
+
+### Failure rules, each tested
+
+| Situation | Behaviour | Why |
+|---|---|---|
+| 429 rate limit | end the pass immediately | walking the remaining creators into the same wall helps nobody; the next cycle's sleep is the back-off |
+| one creator's lookup fails | log, carry on with the others | an unrelated creator's timeout must not stall everyone's confirmations |
+| any exception in a cycle | log, keep the loop alive | the worker must outlive a bad response, or every future payment silently stops confirming |
+| `confirm()` returns false | log, do **not** notify | the database refused it — already settled, or that event already paid another tip |
+| notification throws | log, leave it CONFIRMED | the money moved and the row is correct; Telegram being down cannot un-receive a tip |
+
+Notifications go to both sides, and to one person only once when a creator tests with `/tip`.
 
 ---
 
@@ -232,7 +257,7 @@ Genuinely small once 0–5 exist.
 ## Running it
 
 ```bash
-./gradlew test                 # 89 tests, all green
+./gradlew test                 # 105 tests, all green
 ./gradlew runBot               # the Telegram bot
 ./gradlew run --args="<address> <comment> <amountTon> [timeoutSec] [pollSec]"
 ```
@@ -259,6 +284,7 @@ Env vars:
 | `TONAPI_BASE_URL` | `https://tonapi.io` | use `https://testnet.tonapi.io` for testnet |
 | `TONAPI_KEY` | — | optional bearer token, raises the free rate limit |
 | `TIP_LOOKBACK_SEC` | `300` | how far back the invoice window opens. **Testing only** — a narrow window in production is what stops replay |
+| `TIP_POLL_SEC` | `10` | how often the poller checks. Raise it, or set `TONAPI_KEY`, before pointing many creators at one deployment |
 
 ### Environment note
 

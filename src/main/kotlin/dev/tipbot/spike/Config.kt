@@ -16,6 +16,7 @@ data class Config(
     val jdbcUrl: String,
     val jdbcUser: String?,
     val jdbcPassword: String?,
+    val pollSeconds: Long,
 ) {
     val testnet: Boolean get() = tonApiBaseUrl.contains("testnet")
 
@@ -39,6 +40,10 @@ data class Config(
                 jdbcUrl = get("TIPBOT_JDBC_URL") ?: "jdbc:sqlite:tipbot.db",
                 jdbcUser = get("TIPBOT_JDBC_USER"),
                 jdbcPassword = get("TIPBOT_JDBC_PASSWORD"),
+                // 10s keeps confirmation feeling immediate while staying inside TonAPI's
+                // anonymous rate limit for a handful of creators. Raise it, or set TONAPI_KEY,
+                // before pointing many creators at one deployment.
+                pollSeconds = get("TIP_POLL_SEC")?.toLongOrNull()?.coerceAtLeast(1) ?: 10L,
             )
         }
 
@@ -60,5 +65,6 @@ data class Config(
     /** Keeps the token out of logs and crash reports. */
     override fun toString(): String =
         "Config(tonApiBaseUrl=$tonApiBaseUrl, testnet=$testnet, jdbcUrl=$jdbcUrl, " +
-            "tonApiKey=${if (tonApiKey != null) "set" else "unset"}, telegramBotToken=***)"
+            "pollSeconds=$pollSeconds, tonApiKey=${if (tonApiKey != null) "set" else "unset"}, " +
+            "telegramBotToken=***)"
 }

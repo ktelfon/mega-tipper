@@ -1,14 +1,6 @@
 package dev.tipbot.spike
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import java.io.IOException
 import java.math.BigDecimal
-import java.net.URI
-import java.net.URLEncoder
-import java.net.http.HttpClient
-import java.net.http.HttpRequest
-import java.net.http.HttpResponse
-import java.nio.charset.StandardCharsets
 import java.time.Instant
 import kotlin.system.exitProcess
 
@@ -71,47 +63,33 @@ fun main(args: Array<String>) {
     println("Watching $account for comment=\"$comment\" amount=$expectedNanoTon nanoTON")
     println("Base URL: $baseUrl | timeout: ${timeoutSeconds}s | poll: ${pollSeconds}s")
 
-    val client = HttpClient.newHttpClient()
-    val mapper = ObjectMapper()
+    // Same client the bot's poller uses, so the spike keeps exercising the real request path.
+    val api = TonApiClient(baseUrl, apiKey)
     val credited = mutableSetOf<String>()
-
-    val encoded = URLEncoder.encode(account, StandardCharsets.UTF_8)
-    val uri = URI.create("$baseUrl/v2/accounts/$encoded/events?limit=50")
     val deadline = Instant.now().plusSeconds(timeoutSeconds)
 
     while (Instant.now().isBefore(deadline)) {
-        try {
-            val request = HttpRequest.newBuilder(uri).GET().apply {
-                if (!apiKey.isNullOrBlank()) header("Authorization", "Bearer $apiKey")
-            }.build()
-
-            val response = client.send(request, HttpResponse.BodyHandlers.ofString())
-
-            when (response.statusCode()) {
-                200 -> {
-                    val match = TipMatcher.findPayment(mapper.readTree(response.body()), invoice, credited)
-                    if (match != null) {
-                        credited += match.eventId
-                        println()
-                        println("MATCH FOUND")
-                        println("  event_id : ${match.eventId}")
-                        println("  sender   : ${match.senderAddress}")
-                        println("  amount   : ${match.amountNano} nanoTON")
-                        println("  time     : ${Instant.ofEpochSecond(match.timestamp)}")
-                        return
-                    }
+        when (val result = api.eventsFor(account)) {
+            is AccountEvents.Ok -> {
+                val match = TipMatcher.findPayment(result.json, invoice, credited)
+                if (match != null) {
+                    println()
+                    println("MATCH FOUND")
+                    println("  event_id : ${match.eventId}")
+                    println("  sender   : ${match.senderAddress}")
+                    println("  amount   : ${match.amountNano} nanoTON")
+                    println("  time     : ${Instant.ofEpochSecond(match.timestamp)}")
+                    return
                 }
-
-                429 -> {
-                    println("Rate limited, backing off...")
-                    Thread.sleep(maxOf(pollSeconds * 2, 10) * 1000)
-                    continue
-                }
-
-                else -> System.err.println("Unexpected status ${response.statusCode()}: ${response.body().take(300)}")
             }
-        } catch (e: IOException) {
-            System.err.println("Request failed: ${e.message}")
+
+            is AccountEvents.RateLimited -> {
+                println("Rate limited, backing off...")
+                Thread.sleep(maxOf(pollSeconds * 2, 10) * 1000)
+                continue
+            }
+
+            is AccountEvents.Failed -> System.err.println("Request failed: ${result.reason}")
         }
 
         Thread.sleep(pollSeconds * 1000)

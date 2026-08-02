@@ -122,6 +122,18 @@ fun main() {
 
     val handler = CommandHandler(store, testnet = config.testnet, botUsername = username)
 
+    // The chain watcher runs alongside the bot rather than inside it: confirming a payment is
+    // driven by the blockchain, not by anyone sending a message, so it cannot live in the
+    // update loop. Daemon, so Ctrl+C is not held up waiting for the current sleep to finish.
+    val poller = TipPoller(
+        store = store,
+        events = TonApiClient(config.tonApiBaseUrl, config.tonApiKey),
+        notifier = { chatId, text ->
+            client.execute(SendMessage.builder().chatId(chatId.toString()).text(text).build())
+        },
+    )
+    Thread({ poller.runForever(config.pollSeconds) }, "tip-poller").apply { isDaemon = true }.start()
+
     TelegramBotsLongPollingApplication().use { app ->
         app.registerBot(config.telegramBotToken, TipBot(handler, client))
         println("@$username is running on ${if (config.testnet) "testnet" else "mainnet"}. Ctrl+C to stop.")
