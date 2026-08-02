@@ -186,8 +186,17 @@ your own wallet, which is how the whole flow gets tested without a second accoun
 ### Two links per invoice, because they are consumed differently
 
 Telegram rejects inline-button URLs whose scheme is not http(s) or tg, so a `ton://` link
-**cannot be a button**. The `ton://transfer/…` URI goes in the message body for any wallet;
-the button gets the `https://app.tonkeeper.com/transfer/…` universal link.
+**cannot be a button**. The `ton://transfer/…` URI goes in the message body, where it serves any
+wallet including ones nobody here has heard of, and each supported wallet contributes its own
+https button: Tonkeeper, Tonhub, MyTonWallet.
+
+A wallet is listed only if its universal-link format is documented at docs.ton.org or by the
+wallet itself. A guessed URL produces a button that either fails to open or — far worse — opens
+*without the comment*, sending real money that can never be matched to a tip. Telegram Wallet
+and Trust Wallet are deliberately absent for that reason.
+
+The `ton://` link also carries `exp=<expiresAt>`, so a wallet can refuse a payment this bot
+would decline to credit anyway.
 
 ### Non-bounceable addresses in payment links
 
@@ -357,7 +366,7 @@ Genuinely small once 0–5 exist.
 ## Running it
 
 ```bash
-./gradlew test                 # 110 tests, all green
+./gradlew test                 # 118 tests, all green
 ./gradlew runBot               # the Telegram bot
 ./gradlew run --args="<address> <comment> <amountTon> [timeoutSec] [pollSec]"
 ```

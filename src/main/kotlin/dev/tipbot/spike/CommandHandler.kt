@@ -178,17 +178,19 @@ class CommandHandler(
             text = """
             Tip of $amount TON to ${owner.name}
 
-            Tap the button to open your wallet, or use this link:
-            ${TipLink.tonUri(address, amountNano, tip.nonce)}
+            Pick your wallet below. Using something else? Open this link:
+            ${TipLink.tonUri(address, amountNano, tip.nonce, tip.expiresAt)}
 
             Leave the comment exactly as it is - "${tip.nonce}" is how I recognise your payment.
             Change it and the tip cannot be matched.
 
             This request is good for $minutes minutes.
             """.trimIndent(),
-            buttons = listOf(
-                Button.Url("Pay $amount TON", TipLink.tonkeeperUrl(address, amountNano, tip.nonce))
-            ),
+            // One button per wallet, so a tipper taps the one they already have instead of being
+            // sent to install a particular app.
+            buttons = TipLink.WALLETS.map { wallet ->
+                Button.Url(wallet.label, wallet.url(address, amountNano, tip.nonce))
+            },
         )
     }
 

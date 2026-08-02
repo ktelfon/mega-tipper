@@ -15,12 +15,29 @@ class TipLinkTest {
     }
 
     @Test
-    fun `the button link is https, which is all Telegram allows on a button`() {
-        val url = TipLink.tonkeeperUrl(UQ, 1_000_000_000L, "tip_9f3a1c7b2d4e6f80")
+    fun `every wallet button is https, which is all Telegram allows on a button`() {
+        TipLink.WALLETS.forEach { wallet ->
+            val url = wallet.url(UQ, 1_000_000_000L, "tip_9f3a1c7b2d4e6f80")
 
-        assertTrue(url.startsWith("https://"), url)
-        assertTrue(url.contains("amount=1000000000"), url)
-        assertTrue(url.contains("text=tip_9f3a1c7b2d4e6f80"), url)
+            assertTrue(url.startsWith("https://"), "${wallet.label}: $url")
+            assertTrue(url.contains(UQ), "${wallet.label} must name the recipient: $url")
+            assertTrue(url.contains("amount=1000000000"), "${wallet.label}: $url")
+            assertTrue(url.contains("text=tip_9f3a1c7b2d4e6f80"), "${wallet.label} must carry the nonce: $url")
+        }
+    }
+
+    @Test
+    fun `more than one wallet is offered, so nobody is forced to install a particular app`() {
+        assertTrue(TipLink.WALLETS.size >= 3, TipLink.WALLETS.toString())
+        assertEquals(TipLink.WALLETS.size, TipLink.WALLETS.map { it.label }.toSet().size, "labels must be distinct")
+    }
+
+    @Test
+    fun `the expiry rides along so a wallet can refuse a payment we would not credit`() {
+        val uri = TipLink.tonUri(UQ, 1L, "tip_x", expiresAt = 1_774_200_900L)
+
+        assertTrue(uri.contains("exp=1774200900"), uri)
+        assertTrue(!TipLink.tonUri(UQ, 1L, "tip_x").contains("exp="), "omitted when not given")
     }
 
     @Test

@@ -102,11 +102,15 @@ class CommandHandlerTest {
     }
 
     @Test
-    fun `the pay button is an https link because Telegram rejects other schemes`() {
-        val button = handler.handleCallback(TIPPER, TIPPER, "tip:1000000000", NOW)
-            .buttons.single() as CommandHandler.Button.Url
+    fun `the invoice offers a button per wallet, all https`() {
+        // Telegram rejects any button scheme other than http(s)/tg, so the ton:// link lives in
+        // the message body and each wallet gets its own https button.
+        val reply = handler.handleCallback(TIPPER, TIPPER, "tip:1000000000", NOW)
 
-        assertTrue(button.url.startsWith("https://"), button.url)
+        val urls = reply.buttons.map { (it as CommandHandler.Button.Url).url }
+        assertEquals(TipLink.WALLETS.size, urls.size, "a tipper should tap the wallet they already have")
+        assertTrue(urls.all { it.startsWith("https://") }, urls.toString())
+        assertTrue(reply.text.contains("ton://transfer/"), "and anything else uses the scheme link")
     }
 
     @Test
