@@ -12,6 +12,100 @@ deploy. Nobody in the group is asked to paste an address, and nobody in the grou
 
 ---
 
+## What it's actually for
+
+If you run a Telegram community — a trading group, a study group, a fan channel, a support
+server — some of your members would happily pay you something. Almost none of them will go find
+your Patreon, make an account, enter a card, and set up a subscription. The gap between
+*wanting to support you* and *having supported you* is where the money dies.
+
+This closes that gap to two taps, inside the conversation they were already having.
+
+### For the person collecting
+
+- **You keep everything.** Tips go from the tipper's wallet directly into yours. There is no
+  platform cut, no processing fee, and no payout schedule — because there is no platform sitting
+  in the middle to take one.
+- **Nobody can freeze or reverse it.** You are not an account on someone's service. The money is
+  in your wallet the moment it lands, and no one — including whoever runs the bot — can claw it
+  back, hold it pending review, or close you down.
+- **It works anywhere.** No bank account, no business registration, no country restrictions, no
+  minimum payout threshold. If you can install a wallet app, you can get paid.
+- **You never handle setup.** Whoever runs the bot adds you. You don't paste your address into a
+  chat, so you can't fat-finger it and lose tips to a typo.
+
+### For the person tipping
+
+- **No account, no signup, no card.** If you have a TON wallet, you can tip. There is nothing to
+  register for and no email to hand over.
+- **Two taps.** Pick an amount, confirm in your wallet. Your wallet opens with the address,
+  amount and reference already filled in — there is nothing to copy, paste, or get wrong.
+- **You never leave the chat.** No redirect to a checkout page on some other site.
+- **It arrives in seconds,** and you get told when it did.
+
+### For whoever runs the bot
+
+One deployment serves as many communities as you point it at. Adding a customer is a few lines
+in a config file and a restart. You never touch anyone's money, so you are not a payment
+processor, you hold no balances, and there is nothing for you to be liable for or to lose.
+
+### What it looks like in use
+
+Someone posts something genuinely useful in a group:
+
+```
+Dana:  here's the fix — you need to set the timeout before the retry, not after
+
+Sam:   /tip                      ← sent as a reply to Dana's message
+
+Bot:   Pick an amount to tip @dana.
+       It goes straight from your wallet to theirs - I never hold it.
+       [ 0.5 TON ]  [ 1 TON ]  [ 5 TON ]
+
+Sam taps 1 TON
+
+Bot:   Tip of 1 TON
+       Tap the button to open your wallet, or use this link:
+       ton://transfer/UQCD39VS...?amount=1000000000&text=tip_9f3a1c7b2d4e6f80
+       [ Pay 1 TON ]
+
+Sam taps Pay, confirms in Tonkeeper — about ten seconds pass
+```
+
+Then, in **private chats**, not the group:
+
+```
+Bot → Dana:  Tip received: 1 TON.
+             It is already in your wallet - I only watched for it.
+
+Bot → Sam:   Your tip of 1 TON arrived. Thanks!
+```
+
+Dana did nothing. Sam signed up for nothing. The money moved directly between two wallets and
+the bot only ever watched.
+
+When `/tip` is used **without** replying to anyone, it pays the group's own wallet — and there
+the confirmation is posted in the group, where everyone sees it.
+
+### Being straight about the limits
+
+- **The tipper needs a TON wallet with TON in it.** That is the real barrier, and it is a bigger
+  one than a card. This works best where people already hold crypto.
+- **Amounts are in TON, and TON moves.** A 1 TON tip is not a fixed amount of money.
+- **Each transfer costs about 0.005 TON in network fees,** paid by the tipper. Tips below
+  0.01 TON are refused because the fee would swallow them.
+- **The recipient must be added by whoever runs the bot.** That is the point of this deployment
+  model, but it does mean it is not self-serve.
+- **A tip that isn't paid within 15 minutes expires.** If someone pays late the money still
+  reaches the wallet, but the bot will not announce it. The window is what stops an old payment
+  being replayed as a new one.
+- **Confirmations for a reply-tip are private messages.** Telegram does not let a bot message
+  someone who has never opened a chat with it, so a recipient who has never pressed Start will
+  not get their "tip received" notice. The money arrives regardless — they just aren't told.
+  Anyone expecting to be tipped by reply should open the bot once and press Start.
+
+---
+
 ## Setup, step by step
 
 ### 1. Get a bot token
