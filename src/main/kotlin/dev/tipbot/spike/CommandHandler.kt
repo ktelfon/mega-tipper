@@ -160,6 +160,20 @@ class CommandHandler(
      * either way, and the exposure is mis-attribution rather than theft.
      */
     private fun issueInvoice(originChatId: Long, tipperChatId: Long, amountNano: Long, now: Long): Reply {
+        // Flood guard. Without it one person tapping repeatedly fills the pending table, and
+        // every entry costs the poller a TonAPI request per cycle until it expires - so the
+        // cost of spamming is paid by the rate limit every real tipper shares.
+        //
+        // Counted per tipper rather than per chat: in a group, several people tipping at once is
+        // the normal case and must not look like abuse.
+        val live = store.countLivePending(tipperChatId, now)
+        if (live >= MAX_LIVE_INVOICES) {
+            return Reply(
+                "You already have $live tip requests open. Pay one of them, or wait a few " +
+                    "minutes for them to expire, and then I can make you another."
+            )
+        }
+
         val tip = store.createTip(
             originChatId = originChatId,
             tipperChatId = tipperChatId,
@@ -201,6 +215,13 @@ class CommandHandler(
 
     private companion object {
         const val CALLBACK_TIP = "tip"
+
+        /**
+         * Live invoices one tipper may hold at once. Three is enough to change your mind about
+         * the amount twice, and low enough that filling the table is not worth anyone's time -
+         * with a 15 minute expiry it caps a single spammer at three rows per quarter hour.
+         */
+        const val MAX_LIVE_INVOICES = 3
 
         /** Small enough that the first one is an easy impulse tap in a group. */
         val PRESET_NANO = listOf(

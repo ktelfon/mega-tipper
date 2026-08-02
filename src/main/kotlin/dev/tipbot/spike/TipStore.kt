@@ -88,6 +88,24 @@ class TipStore(private val dataSource: DataSource) {
         return tip
     }
 
+    /**
+     * How many invoices this tipper has open and unexpired.
+     *
+     * The flood guard, and deliberately a query rather than a counter in memory: an in-process
+     * limiter resets on every redeploy, so anyone wanting to fill the table only has to wait for
+     * a restart. Asking the database means the limit means the same thing before and after one.
+     */
+    fun countLivePending(tipperChatId: Long, now: Long): Int =
+        dataSource.connection.use { conn ->
+            conn.prepareStatement(
+                "SELECT COUNT(*) FROM tips WHERE tipper_chat_id = ? AND status = 'PENDING' AND expires_at >= ?"
+            ).use { st ->
+                st.setLong(1, tipperChatId)
+                st.setLong(2, now)
+                st.executeQuery().use { rs -> if (rs.next()) rs.getInt(1) else 0 }
+            }
+        }
+
     fun findTip(nonce: String): Tip? =
         dataSource.connection.use { conn ->
             conn.prepareStatement("$SELECT_TIP WHERE nonce = ?").use { st ->

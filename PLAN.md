@@ -415,8 +415,16 @@ in their wallet.
       stop being watched without a separate job.
 - [x] **Outbound rate limiting** — a 429 from TonAPI ends the pass, and the next cycle's sleep
       is the back-off. One request per address, not per tip.
-- [ ] **Inbound flood control** — nothing stops one person spamming `/tip` and filling the
-      pending table. Cheap to add: a per-user cooldown, or a cap on live invoices per chat.
+- [x] **Inbound flood control** — a tipper may hold **3 live invoices** at once. Counted with a
+      database query rather than a counter in memory, because an in-process limiter resets on
+      every redeploy: anyone wanting to fill the table would only have to wait for a restart.
+
+      Per *tipper*, not per chat — several people tipping at once is the normal case in a group
+      and must not look like abuse. Paying or expiring frees a slot, so with a 15 minute window a
+      single spammer is capped at three rows per quarter hour.
+
+      Asking for the amount menu is never blocked: it creates nothing, so there is nothing to
+      guard. Only issuing an invoice is rate-limited.
 - [x] **Deployment** — Dockerfile and Compose, one service per customer. See
       [DEPLOY.md](DEPLOY.md). Measured at **156 MiB** per bot and a 247 MB image, so a €4 VPS
       runs 20+. Multi-stage build keeps the JDK and source out of the shipped image; the
@@ -439,7 +447,7 @@ Genuinely small once 0–5 exist.
 ## Running it
 
 ```bash
-./gradlew test                 # 133 tests, all green
+./gradlew test                 # 139 tests, all green
 ./gradlew e2e                  # end-to-end only
 ./gradlew runBot               # the Telegram bot
 ./gradlew run --args="<address> <comment> <amountTon> [timeoutSec] [pollSec]"

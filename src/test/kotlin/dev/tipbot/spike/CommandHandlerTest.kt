@@ -135,11 +135,14 @@ class CommandHandlerTest {
 
     @Test
     fun `every tip request gets its own nonce`() {
-        // A reused nonce would let one payment be credited against two requests.
-        repeat(5) { handler.handleCallback(GROUP, TIPPER, "tip:1000000000", NOW) }
+        // A reused nonce would let one payment be credited against two requests. Spread across
+        // two tippers because one person is capped at three live invoices by the flood guard.
+        repeat(3) { handler.handleCallback(GROUP, TIPPER, "tip:1000000000", NOW) }
+        repeat(3) { handler.handleCallback(GROUP, OTHER_TIPPER, "tip:1000000000", NOW) }
 
         val nonces = store.pendingTips(NOW).map { it.nonce }
-        assertEquals(5, nonces.toSet().size, "nonces must be unguessable and unique: $nonces")
+        assertEquals(6, nonces.size)
+        assertEquals(6, nonces.toSet().size, "nonces must be unguessable and unique: $nonces")
     }
 
     @Test
@@ -176,6 +179,68 @@ class CommandHandlerTest {
     @Test
     fun `link hands out the bot's own address, since there is nothing to look up`() {
         assertTrue(dm("/link")!!.text.contains("https://t.me/tipping_bot_for_user123"))
+    }
+
+    // --- flood control -----------------------------------------------------------------------
+
+    @Test
+    fun `a tipper is capped at three live invoices`() {
+        repeat(3) { handler.handleCallback(GROUP, TIPPER, "tip:1000000000", NOW) }
+        assertEquals(3, store.pendingTips(NOW).size)
+
+        val refused = handler.handleCallback(GROUP, TIPPER, "tip:1000000000", NOW)
+
+        assertTrue(refused.text.contains("already have"), refused.text)
+        assertTrue(refused.buttons.isEmpty(), "a refusal must not offer a way to pay")
+        assertEquals(3, store.pendingTips(NOW).size, "the fourth must not reach the store")
+    }
+
+    @Test
+    fun `the cap is per tipper, so a busy group is not mistaken for abuse`() {
+        // Several people tipping at once is the normal case in a group.
+        repeat(3) { handler.handleCallback(GROUP, TIPPER, "tip:1000000000", NOW) }
+
+        val other = handler.handleCallback(GROUP, OTHER_TIPPER, "tip:1000000000", NOW)
+
+        assertTrue(other.buttons.isNotEmpty(), "another person must still be able to tip")
+        assertEquals(4, store.pendingTips(NOW).size)
+    }
+
+    @Test
+    fun `paying frees a slot`() {
+        repeat(3) { handler.handleCallback(GROUP, TIPPER, "tip:1000000000", NOW) }
+        val paid = store.pendingTips(NOW).first()
+        store.confirm(paid.nonce, "event_x", "0:sender", NOW)
+
+        val allowed = handler.handleCallback(GROUP, TIPPER, "tip:1000000000", NOW)
+
+        assertTrue(allowed.buttons.isNotEmpty(), "a settled invoice no longer counts against you")
+    }
+
+    @Test
+    fun `expiry frees a slot`() {
+        repeat(3) { handler.handleCallback(GROUP, TIPPER, "tip:1000000000", NOW) }
+
+        // Past the 15 minute window; the old invoices are no longer live.
+        val later = handler.handleCallback(GROUP, TIPPER, "tip:1000000000", NOW + 3_600)
+
+        assertTrue(later.buttons.isNotEmpty(), "waiting it out is the way back in")
+    }
+
+    @Test
+    fun `the cap also applies to the typed command, not just the buttons`() {
+        repeat(3) { dm("/tip 1") }
+
+        assertTrue(dm("/tip 1")!!.text.contains("already have"))
+        assertEquals(3, store.pendingTips(NOW).size)
+    }
+
+    @Test
+    fun `asking for the menu is never blocked - it creates nothing`() {
+        repeat(3) { handler.handleCallback(GROUP, TIPPER, "tip:1000000000", NOW) }
+
+        repeat(5) { assertTrue(inGroup("/tip")!!.buttons.isNotEmpty(), "the menu costs nothing to show") }
+        assertEquals(3, store.pendingTips(NOW).size)
     }
 
     // --- groups ------------------------------------------------------------------------------
