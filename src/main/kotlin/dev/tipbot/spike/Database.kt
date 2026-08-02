@@ -71,6 +71,34 @@ object Database {
                 // The poller's hot query: pending tips that have not expired.
                 st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_tips_status ON tips(status, expires_at)")
             }
+
+            upgradeFromMultiWallet(conn)
+        }
+    }
+
+    /**
+     * Brings a database created before the bot became single-owner up to date.
+     *
+     * `CREATE TABLE IF NOT EXISTS` does nothing to a table that already exists, so a renamed
+     * column is invisible to it - the schema silently stays stale and the first insert fails at
+     * runtime with "no such column". Found exactly that way.
+     *
+     * `RENAME COLUMN` is supported by SQLite 3.25+ and every Postgres, so one statement covers
+     * both engines. Existing tips keep their history rather than being thrown away.
+     */
+    private fun upgradeFromMultiWallet(conn: java.sql.Connection) {
+        val columns = mutableSetOf<String>()
+        conn.metaData.getColumns(null, null, "tips", null).use { rs ->
+            while (rs.next()) columns += rs.getString("COLUMN_NAME").lowercase()
+        }
+
+        conn.createStatement().use { st ->
+            if ("creator_chat_id" in columns && "origin_chat_id" !in columns) {
+                st.executeUpdate("ALTER TABLE tips RENAME COLUMN creator_chat_id TO origin_chat_id")
+            }
+
+            // The wallet no longer lives in the database; it comes from OwnerConfig at startup.
+            st.executeUpdate("DROP TABLE IF EXISTS creators")
         }
     }
 }
