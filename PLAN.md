@@ -15,8 +15,18 @@ chain, validates payments, and notifies. No pooled funds, no custody.
 - [x] **Step 3 — Telegram bot skeleton**
 - [x] **Step 4 — Tip request generation**
 - [x] **Step 5 — Wire poller to DB**
-- [ ] **Step 6 — Production hardening** ← current
+- [ ] **Step 6 — Production hardening** ← current, partly done
 - [ ] Step 7 — File-selling extension
+
+Not in the original plan, added as the product took shape:
+
+- [x] **Group tipping** — `/tip` and `!tip` in groups
+- [x] **Channel tipping** — a tip card subscribers can tap, since they cannot type
+- [x] **One bot, one person, one wallet** — operator-deployed, config baked in
+- [x] **A button per wallet** — Tonkeeper, Tonhub, MyTonWallet, Telegram Wallet
+- [x] **End-to-end testing** — `./gradlew e2e`, real Telegram JSON through the real router
+- [x] **First real payment** — 0.5 TON, mainnet, 2026-08-02, pinned as a fixture
+- [x] **Test plan** — [TESTING.md](TESTING.md), 24 numbered cases
 
 ---
 
@@ -301,6 +311,23 @@ the chat id would credit the tip to the group and send the thank-you to everyone
 In a group the nonce is posted in the open, so it is unguessable but not secret. A stranger
 could attach a live nonce to their own transfer and have it credited as their tip. The creator
 is paid either way — the exposure is mis-attribution, not theft — and it buys the one-tap flow.
+
+---
+
+## Channel tipping ✅ DONE
+
+Subscribers **cannot post in a broadcast channel at all**, so no amount of command-watching
+could ever have served an audience there. `/tip` from an admin publishes a card instead, and the
+only thing a subscriber can do — tap — is the whole interaction.
+
+The card's button is a deep link into the bot's private chat rather than a callback. An invoice
+posted back into the channel would spam it with every subscriber's payment link, and Telegram
+refuses to message anyone who has never opened a chat with the bot — which tapping the link does
+by definition.
+
+**Found the hard way.** Channel posts arrive as `channel_post`, not `message`, and were being
+dropped by the update router without a trace while 116 unit tests stayed green. That is what
+prompted [end-to-end testing](#end-to-end-testing--done).
 
 ---
 
