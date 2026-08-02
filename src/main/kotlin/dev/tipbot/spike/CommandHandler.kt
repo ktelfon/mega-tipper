@@ -33,6 +33,12 @@ class CommandHandler(
         val userId: Long,
         val text: String,
         val isGroup: Boolean = false,
+        /**
+         * A broadcast channel. Subscribers cannot post in one at all, so a command here can only
+         * have come from an admin - and the useful response is to publish something subscribers
+         * can *tap*, since they can never type.
+         */
+        val isChannel: Boolean = false,
     )
 
     /** A button label plus what tapping it does. [TipBot] renders these; nothing here knows Telegram. */
@@ -71,11 +77,13 @@ class CommandHandler(
 
         return when (verb) {
             "start", "help" -> welcome(message)
-            "tip" -> tip(message, argument, now)
+            // In a channel this publishes a tip card rather than starting a conversation.
+            "tip" -> if (message.isChannel) tipCard() else tip(message, argument, now)
             "wallet" -> Reply("Tips go straight to ${owner.name}'s wallet:\n\n${friendlyAddress()}")
             "link" -> Reply("Anyone can tip ${owner.name} here:\n\nhttps://t.me/$botUsername")
             // An unknown "/command" in a group belongs to someone else. Only answer in private.
-            else -> if (message.isGroup) null else Reply("I don't know that command. Try /help.")
+            else -> if (message.isGroup || message.isChannel) null
+            else Reply("I don't know that command. Try /help.")
         }
     }
 
@@ -113,6 +121,18 @@ class CommandHandler(
         // explains that /tip exists.
         return Reply(intro, buttons = amountButtons())
     }
+
+    /**
+     * The card the bot posts into a channel. Its button is a deep link into the bot's own private
+     * chat, not a callback, for two reasons: an invoice posted back into the channel would spam
+     * it with every subscriber's payment link, and Telegram refuses to message anyone who has
+     * never opened a chat with the bot - which tapping the link does by definition.
+     */
+    private fun tipCard() = Reply(
+        "Enjoying this? You can tip ${owner.name} in TON.\n\n" +
+            "It goes straight from your wallet to theirs - nothing is held in between.",
+        buttons = listOf(Button.Url("Tip ${owner.name}", "https://t.me/$botUsername?start=tip")),
+    )
 
     private fun tip(message: Incoming, argument: String, now: Long): Reply =
         if (argument.isEmpty()) {

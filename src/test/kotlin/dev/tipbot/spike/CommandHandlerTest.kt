@@ -194,8 +194,58 @@ class CommandHandlerTest {
         assertNull(dm(EQ))
     }
 
+    // --- channels ----------------------------------------------------------------------------
+    //
+    // Subscribers cannot post in a broadcast channel at all, so nothing here can rely on anyone
+    // typing. The only useful response is something they can tap.
+
+    private fun inChannel(text: String) = handler.handle(
+        CommandHandler.Incoming(chatId = CHANNEL, userId = CHANNEL, text = text, isChannel = true),
+        NOW,
+    )
+
+    @Test
+    fun `tip in a channel publishes a card subscribers can tap`() {
+        val reply = inChannel("/tip")!!
+
+        val button = reply.buttons.single() as CommandHandler.Button.Url
+        assertTrue(button.url.contains("t.me/tipping_bot_for_user123?start=tip"), button.url)
+        assertTrue(reply.text.contains("@user123"), reply.text)
+    }
+
+    @Test
+    fun `the channel card links to a private chat rather than paying in the channel`() {
+        // An invoice posted back into the channel would spam it with every subscriber's payment
+        // link, and Telegram will not message anyone who has not opened a chat with the bot.
+        val reply = inChannel("/tip")!!
+
+        assertTrue(reply.buttons.all { it is CommandHandler.Button.Url }, "no callbacks in a channel")
+        assertTrue(store.pendingTips(NOW).isEmpty(), "posting a card must not create an invoice")
+    }
+
+    @Test
+    fun `bang tip publishes the card too`() {
+        assertEquals(inChannel("/tip")!!.buttons.size, inChannel("!tip")!!.buttons.size)
+    }
+
+    @Test
+    fun `the deep link from the card opens the amount menu`() {
+        // t.me/<bot>?start=tip arrives in the private chat as "/start tip".
+        val reply = dm("/start tip")!!
+
+        assertTrue(reply.buttons.isNotEmpty(), "the tipper must land on something tappable")
+        assertTrue(reply.buttons.all { it is CommandHandler.Button.Callback })
+    }
+
+    @Test
+    fun `an unknown command in a channel is ignored`() {
+        assertNull(inChannel("/announcement"))
+        assertNull(inChannel("just a normal post"))
+    }
+
     private companion object {
         const val TIPPER = 99999L
+        const val CHANNEL = -1001111111111L
         const val OTHER_TIPPER = 77777L
         const val GROUP = -1001234567890L
         const val EQ = "EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N"

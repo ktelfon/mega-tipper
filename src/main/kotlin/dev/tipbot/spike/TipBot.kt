@@ -33,6 +33,9 @@ class TipBot(
         when {
             update.hasCallbackQuery() -> handleCallback(update)
             update.hasMessage() && update.message.hasText() -> handleMessage(update)
+            // Posts in a channel arrive as channel_post, not message. Without this they are
+            // dropped silently - which looks exactly like the bot being broken.
+            update.hasChannelPost() && update.channelPost.hasText() -> handleChannelPost(update)
         }
     }
 
@@ -52,6 +55,28 @@ class TipBot(
             userId = message.from?.id ?: chatId,
             text = message.text,
             isGroup = isGroup,
+        )
+
+        val reply = safely(chatId) { handler.handle(incoming, Instant.now().epochSecond) }
+        if (reply != null) send(chatId, reply)
+    }
+
+    /**
+     * A post in a channel. There is no sender to speak of - posts are made by the channel - so
+     * the chat stands in for the user, and the only command that means anything is the one that
+     * publishes a tip card for subscribers to tap.
+     */
+    private fun handleChannelPost(update: Update) {
+        val post = update.channelPost
+        val chatId = post.chatId
+
+        log.info("channel {} -> {}", chatId, post.text.trim().substringBefore(' ').take(32))
+
+        val incoming = CommandHandler.Incoming(
+            chatId = chatId,
+            userId = chatId,
+            text = post.text,
+            isChannel = true,
         )
 
         val reply = safely(chatId) { handler.handle(incoming, Instant.now().epochSecond) }
