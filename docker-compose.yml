@@ -1,6 +1,5 @@
 # One service per customer. The bot is personalised - one bot, one person, one wallet - so
-# scaling means more instances, not a bigger one. Each is ~160 MB, so a 4 GB box comfortably
-# runs a couple of dozen.
+# scaling means more instances, not a bigger one. Each is ~78 MB, so a 4 GB box runs 40-odd.
 #
 # To add a customer:
 #   1. @BotFather -> /newbot -> name it after them, e.g. tipping_bot_for_dana
@@ -21,6 +20,14 @@ services:
       TELEGRAM_BOT_TOKEN: ${MDEFMAN_BOT_TOKEN:?set MDEFMAN_BOT_TOKEN in .env}
       # Optional: raises the TonAPI rate limit, shared across all bots on this host.
       TONAPI_KEY: ${TONAPI_KEY:-}
+      # Sized for the work rather than for the host. The JVM reads the container limit below,
+      # so without one it would size a heap for the whole machine - which is how this was first
+      # measured at 156 MB on a 15 GB laptop instead of the 78 MB it actually needs.
+      JAVA_OPTS: >-
+        -Xmx48m -Xss512k -XX:MaxMetaspaceSize=64m
+        -XX:+UseSerialGC -XX:TieredStopAtLevel=1
+    # Verified to start and run at 128m; 192m leaves headroom for a burst of tippers at once.
+    mem_limit: 192m
     volumes:
       - mdefman-data:/data
       - ./customers/mdefman.yaml:/config/tipbot.yaml:ro

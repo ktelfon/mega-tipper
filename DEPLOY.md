@@ -4,7 +4,7 @@ Getting the bot off a laptop. Long polling means **no public URL, no inbound por
 certificate** — the same image runs behind any NAT, which removes most of what usually makes
 deployment annoying.
 
-Measured, not estimated: **156 MiB** per bot, image **247 MB**.
+Measured, not estimated: **78 MiB** per bot, image **247 MB**.
 
 ---
 
@@ -14,8 +14,22 @@ You need one bot process per customer, so the question is how cheaply you can ru
 JVMs, not how big one server needs to be.
 
 **A small VPS with Docker.** Hetzner CX22 or equivalent — roughly €4/month, 4 GB RAM, a real
-disk. At 156 MiB each that is comfortably **20+ bots on one box**, and adding a customer costs
-nothing extra until you run out of memory.
+disk. At 78 MiB each that is **40-odd bots on one box** — about 9 cents per customer per month.
+
+### Why 78 MB and not less
+
+That is a JVM floor, not this application's data — the bot itself holds almost nothing. A Go or
+Rust rewrite would land around 10–15 MB. It is not worth it: the saving is ~7 cents per customer
+per month, against throwing away a proven matcher, 133 tests and a real payment that has been
+through the whole path.
+
+If density ever does matter, the fix is not a rewrite. `TelegramBotsLongPollingApplication`
+registers **many bots in one process**, so N customers could share one JVM — one 78 MB floor
+instead of N. Each customer keeps their own bot identity and wallet; only the process is shared.
+
+**Memory is not the first constraint anyway.** TonAPI's anonymous rate limit binds sooner, and
+`TIP_POLL_SEC` or a `TONAPI_KEY` is the lever for that — not RAM. Note an idle bot makes no API
+calls at all, since `pollOnce()` returns before requesting anything when nothing is pending.
 
 Avoid platforms with an ephemeral filesystem (many free tiers) unless you also move to Postgres.
 A wiped disk takes the in-flight invoices *and the double-payout guard* with it — the guard is a
