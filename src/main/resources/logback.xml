@@ -1,0 +1,20 @@
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss} %-5level %logger{20} - %msg%n</pattern>
+        </encoder>
+    </appender>
+
+    <!--
+      Libraries default to DEBUG here, which buries anything worth reading under
+      connection-pool and long-polling chatter. Keep them at WARN and let the bot's own
+      logging through, so an operator can actually see what the bot is doing.
+    -->
+    <logger name="com.zaxxer.hikari" level="WARN"/>
+    <logger name="org.telegram" level="WARN"/>
+    <logger name="okhttp3" level="WARN"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>
