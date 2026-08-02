@@ -289,4 +289,7 @@ You need a **JDK 21**, not just a JRE. Gradle auto-detects one in `~/.jdks`, via
 installed system-wide. A JRE surfaces as a confusing *"Cannot find a Java installation matching
 languageVersion=21"* rather than an obvious "no compiler".
 
+See [TESTING.md](TESTING.md) for a numbered test plan — what is automated and what has to be
+checked by hand with a real wallet.
+
 See [PLAN.md](PLAN.md) for how it is built and why each decision went the way it did.
