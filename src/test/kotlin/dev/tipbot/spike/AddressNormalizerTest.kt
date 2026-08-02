@@ -11,6 +11,21 @@ class AddressNormalizerTest {
      * All four spellings of one real mainnet wallet, plus its raw form as reported by
      * TonAPI. Verified against tonapi.io: EQCD39... resolves to exactly this raw address.
      */
+    @Test
+    fun `rendering back for a payment link gives the non-bounceable form`() {
+        // Bounceable would be returned to the sender if the creator's wallet is not yet
+        // deployed - which is the state of every wallet installed to collect tips.
+        assertEquals(UQ, AddressNormalizer.toUserFriendly(RAW))
+        assertEquals(ZQ, AddressNormalizer.toUserFriendly(RAW, testnet = true))
+    }
+
+    @Test
+    fun `a rendered address normalizes back to the same raw form`() {
+        // The round trip is what the payment link relies on: what the tipper's wallet sends
+        // to must be the address TonAPI later reports, or the tip never matches.
+        assertEquals(RAW, ok(AddressNormalizer.toUserFriendly(RAW)).raw)
+    }
+
     private companion object {
         const val RAW = "0:83dfd552e63729b472fcbcc8c45ebcc6691702558b68ec7527e1ba403a0f31a8"
         const val EQ = "EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N" // bounceable mainnet

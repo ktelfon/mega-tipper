@@ -81,4 +81,19 @@ object AddressNormalizer {
             testnet = address.isTestOnly,
         )
     }
+
+    /**
+     * Renders a stored raw address back into the form a wallet expects in a payment link.
+     *
+     * **Non-bounceable on purpose.** A bounceable transfer to a wallet that has never sent a
+     * transaction - so its contract is not yet deployed - is returned to the sender, minus
+     * fees. That is exactly the creator who just installed a wallet to collect tips, so the
+     * bounceable form would fail precisely for new users. Non-bounceable lands either way.
+     *
+     * @param raw canonical `0:<hex>` form as produced by [normalize] and stored
+     */
+    fun toUserFriendly(raw: String, testnet: Boolean = false): String {
+        val address = Address.of(raw)
+        return if (testnet) address.toNonBounceableTestnet() else address.toNonBounceable()
+    }
 }

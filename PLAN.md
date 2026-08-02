@@ -3,7 +3,7 @@
 Non-custodial tipping bot. Money moves wallet-to-wallet; the backend only watches the
 chain, validates payments, and notifies. No pooled funds, no custody.
 
-**Current step: 3 — Telegram bot skeleton**
+**Current step: 5 — wire the poller to the database**
 
 ---
 
@@ -12,9 +12,9 @@ chain, validates payments, and notifies. No pooled funds, no custody.
 - [x] **Step 0 — Blockchain verification spike**
 - [x] **Step 1 — Address normalization**
 - [x] **Step 2 — Persistence**
-- [ ] **Step 3 — Telegram bot skeleton** ← current
-- [ ] Step 4 — Tip request generation
-- [ ] Step 5 — Wire poller to DB
+- [x] **Step 3 — Telegram bot skeleton**
+- [x] **Step 4 — Tip request generation**
+- [ ] **Step 5 — Wire poller to DB** ← current
 - [ ] Step 6 — Production hardening
 - [ ] Step 7 — File-selling extension
 
@@ -162,18 +162,47 @@ comment is unambiguous to retype given `TipMatcher` compares case-sensitively.
 
 ---
 
-## Step 3 — Telegram bot skeleton
+## Step 3 — Telegram bot skeleton ✅ DONE
 
-`telegrambots-spring-boot-starter`, or the lighter `kotlin-telegram-bot`.
-`/setup` → validate + normalize + store the creator's address. First point where the bot is
-something you can actually talk to.
+`telegrambots-longpolling` 9.0.0 — long polling needs no public URL, so the bot runs the same
+on a laptop as in the cloud. `TipBot.kt` is deliberately thin plumbing; every decision about
+what to say lives in `CommandHandler`, which is pure and tested without a token or a network.
+
+Commands: `/start`, `/help`, `/setup`, `/wallet`, `/link`, `/tip`.
+
+**Stateless on purpose.** There is no "awaiting input" flag anywhere. `/setup` followed by a
+bare address works because any message parsing as a TON address is a registration, and the
+tipping flow carries the creator's id in the deep link and the button payload. Nothing is lost
+on restart, and a redeploy cannot strand a half-finished conversation.
 
 ---
 
-## Step 4 — Tip request generation
+## Step 4 — Tip request generation ✅ DONE
 
-- Nonce generation — **must** be `SecureRandom`, not sequential. A guessable nonce is a free tip.
-- `ton://transfer?address=…&amount=…&text=<nonce>` deep link, surfaced as an inline button.
+Creator gets `https://t.me/<bot>?start=<chatId>` to share. A tipper opening it lands on an
+amount menu; tapping one issues the invoice and returns a payment link. `/tip <amount>` bills
+your own wallet, which is how the whole flow gets tested without a second account.
+
+### Two links per invoice, because they are consumed differently
+
+Telegram rejects inline-button URLs whose scheme is not http(s) or tg, so a `ton://` link
+**cannot be a button**. The `ton://transfer/…` URI goes in the message body for any wallet;
+the button gets the `https://app.tonkeeper.com/transfer/…` universal link.
+
+### Non-bounceable addresses in payment links
+
+A bounceable transfer to a wallet that has never sent a transaction — so its contract is not
+deployed — is returned to the sender minus fees. That is exactly the creator who just
+installed a wallet to collect tips, so the bounceable form would fail precisely for new users.
+`AddressNormalizer.toUserFriendly()` renders `UQ`/`0Q`.
+
+### Amounts are BigDecimal, never Double
+
+`TipMatcher` compares the amount exactly, with no tolerance. `0.1 + 0.2` in binary floating
+point is not `0.3`, and one bit of rounding error produces an invoice that a correct payment
+can never satisfy — the money leaves the tipper's wallet and the tip never confirms. `1e9` is
+refused rather than read as a billion TON, sub-nanoTON precision is refused as unpayable, and
+amounts outside 0.01–10 000 TON are refused as dust or a fat-fingered digit.
 
 ---
 
@@ -203,7 +232,8 @@ Genuinely small once 0–5 exist.
 ## Running it
 
 ```bash
-./gradlew test                 # 49 tests, all green
+./gradlew test                 # 89 tests, all green
+./gradlew runBot               # the Telegram bot
 ./gradlew run --args="<address> <comment> <amountTon> [timeoutSec] [pollSec]"
 ```
 

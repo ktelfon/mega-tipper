@@ -21,7 +21,7 @@ class CommandHandlerTest {
     fun setUp() {
         dataSource = Database.connect("jdbc:sqlite:${dir.resolve("test.db")}")
         store = TipStore(dataSource)
-        handler = CommandHandler(store, testnet = false)
+        handler = CommandHandler(store, testnet = false, botUsername = "mega_tipper_bot")
     }
 
     @AfterTest
@@ -132,8 +132,137 @@ class CommandHandlerTest {
         assertNull(store.findCreator(CHAT))
     }
 
+    // --- tipping ---------------------------------------------------------------------------
+
+    @Test
+    fun `registering hands back a share link the creator can post`() {
+        val reply = send("/setup $EQ")
+
+        assertTrue(reply.contains("https://t.me/mega_tipper_bot?start=$CHAT"), reply)
+    }
+
+    @Test
+    fun `link is refused until there is a wallet to pay into`() {
+        assertTrue(send("/link").contains("/setup"))
+
+        send("/setup $EQ")
+
+        assertTrue(send("/link").contains("https://t.me/mega_tipper_bot?start=$CHAT"))
+    }
+
+    @Test
+    fun `opening a share link offers amounts for that creator`() {
+        send("/setup $EQ", chatId = CHAT)
+
+        val reply = handler.handle(TIPPER, "/start $CHAT", NOW)
+
+        assertTrue(reply.buttons.isNotEmpty(), "a tipper needs something to tap")
+        val payloads = reply.buttons.map { (it as CommandHandler.Button.Callback).data }
+        assertTrue(payloads.all { it.startsWith("tip:$CHAT:") }, "every button must name the creator: $payloads")
+    }
+
+    @Test
+    fun `a share link for someone who never set up a wallet does not offer to take money`() {
+        val reply = handler.handle(TIPPER, "/start $CHAT", NOW)
+
+        assertTrue(reply.buttons.isEmpty(), "there is nowhere to send the funds")
+        assertTrue(reply.text.contains("hasn't registered"), reply.text)
+    }
+
+    @Test
+    fun `tapping an amount issues a pending tip against the creator's wallet`() {
+        send("/setup $EQ", chatId = CHAT)
+
+        val reply = handler.handleCallback(TIPPER, "tip:$CHAT:1000000000", NOW)
+
+        val tip = store.pendingTips(NOW).single()
+        assertEquals(CHAT, tip.creatorChatId)
+        assertEquals(TIPPER, tip.tipperChatId)
+        assertEquals(RAW, tip.rawAddress, "the invoice must point at the creator's stored address")
+        assertEquals(1_000_000_000L, tip.amountNano)
+        assertTrue(reply.text.contains(tip.nonce), "the tipper needs the comment to attach: ${reply.text}")
+    }
+
+    @Test
+    fun `the payment link carries the address, exact amount and nonce`() {
+        send("/setup $EQ", chatId = CHAT)
+
+        val reply = handler.handleCallback(TIPPER, "tip:$CHAT:1500000000", NOW)
+        val nonce = store.pendingTips(NOW).single().nonce
+
+        // Non-bounceable, so a tip to a creator whose wallet is not yet deployed still lands.
+        assertTrue(reply.text.contains("ton://transfer/$UQ"), reply.text)
+        assertTrue(reply.text.contains("amount=1500000000"), reply.text)
+        assertTrue(reply.text.contains("text=$nonce"), reply.text)
+    }
+
+    @Test
+    fun `the pay button is an https link because Telegram rejects other schemes`() {
+        send("/setup $EQ", chatId = CHAT)
+
+        val reply = handler.handleCallback(TIPPER, "tip:$CHAT:1000000000", NOW)
+
+        val button = reply.buttons.single() as CommandHandler.Button.Url
+        assertTrue(button.url.startsWith("https://"), button.url)
+    }
+
+    @Test
+    fun `every tip request gets its own nonce`() {
+        // A reused nonce would let one payment be credited against two requests.
+        send("/setup $EQ", chatId = CHAT)
+
+        repeat(5) { handler.handleCallback(TIPPER, "tip:$CHAT:1000000000", NOW) }
+
+        val nonces = store.pendingTips(NOW).map { it.nonce }
+        assertEquals(5, nonces.size)
+        assertEquals(5, nonces.toSet().size, "nonces must be unguessable and unique: $nonces")
+    }
+
+    @Test
+    fun `a mangled button payload never creates a tip`() {
+        send("/setup $EQ", chatId = CHAT)
+
+        listOf("", "tip:", "tip:$CHAT", "nope:$CHAT:1000000000", "tip:abc:1000000000", "tip:$CHAT:1e9")
+            .forEach { payload ->
+                handler.handleCallback(TIPPER, payload, NOW)
+            }
+
+        assertTrue(store.pendingTips(NOW).isEmpty(), "garbage in a payload must not reach the store")
+    }
+
+    @Test
+    fun `tip with an amount alone bills your own wallet, for testing`() {
+        send("/setup $EQ", chatId = CHAT)
+
+        val reply = send("/tip 2")
+
+        val tip = store.pendingTips(NOW).single()
+        assertEquals(CHAT, tip.creatorChatId)
+        assertEquals(2_000_000_000L, tip.amountNano)
+        assertTrue(reply.contains("2 TON"), reply)
+    }
+
+    @Test
+    fun `a bad amount is explained and creates nothing`() {
+        send("/setup $EQ", chatId = CHAT)
+
+        val reply = send("/tip lots")
+
+        assertTrue(reply.contains("amount"), reply)
+        assertTrue(store.pendingTips(NOW).isEmpty())
+    }
+
+    @Test
+    fun `tipping someone with no wallet is refused before anything is stored`() {
+        val reply = send("/tip $OTHER_CHAT 1")
+
+        assertTrue(reply.contains("hasn't registered"), reply)
+        assertTrue(store.pendingTips(NOW).isEmpty())
+    }
+
     private companion object {
         const val CHAT = 12345L
+        const val TIPPER = 99999L
         const val OTHER_CHAT = 54321L
         const val EQ = "EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N"
         const val UQ = "UQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqEBI"

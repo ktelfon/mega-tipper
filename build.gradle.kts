@@ -25,6 +25,11 @@ dependencies {
     implementation("org.telegram:telegrambots-client:9.0.0")
     implementation("org.telegram:telegrambots-longpolling:9.0.0")
 
+    // Declared rather than relied on transitively via telegrambots. Without an SLF4J binding
+    // on the classpath every log call becomes a silent no-op, so an unrelated dependency bump
+    // could turn the bot's logging off without anything failing to compile or to test.
+    runtimeOnly("ch.qos.logback:logback-classic:1.5.18")
+
     testImplementation(kotlin("test"))
 }
 
