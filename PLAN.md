@@ -332,12 +332,18 @@ rather than a stack trace.
 
 ---
 
-## Step 6 — Production hardening
+## Step 6 — Production hardening ← current, partly done
 
-Webhooks instead of polling, rate limits, expiry sweeper for dead invoices.
-
-Open decision: webhooks need a publicly reachable endpoint — a deployment problem, not a code
-problem. Polling is fine until then.
+- [x] **Expiry sweeper** — `pollOnce()` calls `expireStale()` on every pass, so dead invoices
+      stop being watched without a separate job.
+- [x] **Outbound rate limiting** — a 429 from TonAPI ends the pass, and the next cycle's sleep
+      is the back-off. One request per address, not per tip.
+- [ ] **Inbound flood control** — nothing stops one person spamming `/tip` and filling the
+      pending table. Cheap to add: a per-user cooldown, or a cap on live invoices per chat.
+- [ ] **Deployment** — Dockerfile, a host, and a decision on SQLite-with-a-volume vs Postgres.
+- [ ] **Webhooks instead of polling** — needs a publicly reachable endpoint, which is a
+      deployment problem rather than a code one. Polling is fine until then, and possibly for
+      good.
 
 ---
 
@@ -397,7 +403,12 @@ Any of these work — Gradle auto-detects all of them, so no path needs committi
 
 ## Not done yet
 
-- Not a git repo — `git init` whenever you want history
-- No testnet run: everything was verified against live mainnet reads, and no transfer has
-  ever been *sent* through this flow. The happy path is proven by observation, not by a
-  payment we originated
+**The one that matters: no payment has ever been sent through this flow.** Everything is
+verified against live mainnet *reads* — the matcher was proven against a real 10 TON transfer
+somebody else made. The happy path is proven by observation, not by a payment we originated.
+
+Specifically unverified until a real tip is sent:
+- whether `ton://transfer/<address>?amount=…&text=…` opens a wallet with **both** the amount and
+  the comment pre-filled. If the comment does not survive, nothing will ever match.
+- whether the Tonkeeper universal link behaves the same as the `ton://` URI
+- end-to-end timing: invoice to confirmation to announcement
