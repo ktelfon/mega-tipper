@@ -417,7 +417,12 @@ in their wallet.
       is the back-off. One request per address, not per tip.
 - [ ] **Inbound flood control** — nothing stops one person spamming `/tip` and filling the
       pending table. Cheap to add: a per-user cooldown, or a cap on live invoices per chat.
-- [ ] **Deployment** — Dockerfile, a host, and a decision on SQLite-with-a-volume vs Postgres.
+- [x] **Deployment** — Dockerfile and Compose, one service per customer. See
+      [DEPLOY.md](DEPLOY.md). Measured at **156 MiB** per bot and a 247 MB image, so a €4 VPS
+      runs 20+. Multi-stage build keeps the JDK and source out of the shipped image; the
+      container runs unprivileged; tokens are passed at run time, never baked into a layer.
+      SQLite on a named volume — a named volume rather than a bind mount specifically because
+      the container is not root and Docker fixes ownership on the former.
 - [ ] **Webhooks instead of polling** — needs a publicly reachable endpoint, which is a
       deployment problem rather than a code one. Polling is fine until then, and possibly for
       good.

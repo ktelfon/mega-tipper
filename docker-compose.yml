@@ -1,0 +1,35 @@
+# One service per customer. The bot is personalised - one bot, one person, one wallet - so
+# scaling means more instances, not a bigger one. Each is ~160 MB, so a 4 GB box comfortably
+# runs a couple of dozen.
+#
+# To add a customer:
+#   1. @BotFather -> /newbot -> name it after them, e.g. tipping_bot_for_dana
+#   2. put the token in .env as DANA_BOT_TOKEN=...
+#   3. write customers/dana.yaml (copy tipbot.yaml.example)
+#   4. copy the block below, replace every "mdefman" with "dana"
+#   5. docker compose up -d
+#
+# Nothing here is shared between customers: separate token, separate wallet file, separate
+# volume. One customer's bot cannot see another's invoices, and removing one removes nothing else.
+
+services:
+  mdefman:
+    image: tipbot:latest
+    build: .
+    restart: unless-stopped
+    environment:
+      TELEGRAM_BOT_TOKEN: ${MDEFMAN_BOT_TOKEN:?set MDEFMAN_BOT_TOKEN in .env}
+      # Optional: raises the TonAPI rate limit, shared across all bots on this host.
+      TONAPI_KEY: ${TONAPI_KEY:-}
+    volumes:
+      - mdefman-data:/data
+      - ./customers/mdefman.yaml:/config/tipbot.yaml:ro
+    logging:
+      # Without a cap these grow forever on a small VPS.
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
+volumes:
+  # A named volume, not a bind mount: the container runs as an unprivileged user, and Docker
+  # sets ownership on a named volume so the bot can actually write its database.
+  mdefman-data:

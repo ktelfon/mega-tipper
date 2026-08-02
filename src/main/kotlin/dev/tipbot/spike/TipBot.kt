@@ -150,6 +150,18 @@ fun main() {
     val config = Config.load()
     println("Starting tip bot: $config")
 
+    // One bot, one person, one wallet, baked in at deploy time. A bad address aborts startup
+    // rather than running a deployment that silently swallows every tip sent to it.
+    //
+    // Checked before anything touches the network: a missing or malformed wallet file is the
+    // likelier mistake and costs nothing to detect, so it should not be reported as a confusing
+    // Telegram error behind a failed round trip.
+    val owner = OwnerConfig.load(File(config.walletFile), config.testnet)
+    println("Collecting tips for ${owner.name} -> ${owner.raw}")
+    if (owner.chatId == null) {
+        println("No ownerChatId set - confirmations go to whichever chat the tip was raised in.")
+    }
+
     val dataSource = Database.connect(config.jdbcUrl, config.jdbcUser, config.jdbcPassword)
     val store = TipStore(dataSource)
     val client = OkHttpTelegramClient(config.telegramBotToken)
@@ -158,14 +170,6 @@ fun main() {
     // reading it from the token that is already in hand means it cannot drift out of sync
     // with the bot the token actually belongs to.
     val username = client.execute(GetMe()).userName
-
-    // One bot, one person, one wallet, baked in at deploy time. A bad address aborts startup
-    // rather than running a deployment that silently swallows every tip sent to it.
-    val owner = OwnerConfig.load(File(config.walletFile), config.testnet)
-    println("Collecting tips for ${owner.name} -> ${owner.raw}")
-    if (owner.chatId == null) {
-        println("No ownerChatId set - confirmations go to whichever chat the tip was raised in.")
-    }
 
     val handler = CommandHandler(store, owner, testnet = config.testnet, botUsername = username)
 

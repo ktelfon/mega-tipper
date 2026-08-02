@@ -1,0 +1,16 @@
+# Secrets must never reach an image layer - they are passed at run time instead.
+.env
+*.env
+!.env.example
+tipbot.yaml
+
+# Build output and local state; the image builds its own.
+build/
+.gradle/
+.kotlin/
+*.db
+*.db-journal
+
+.git/
+.idea/
+.vscode/

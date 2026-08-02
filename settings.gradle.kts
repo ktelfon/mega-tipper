@@ -1,1 +1,1 @@
-rootProject.name = "ton-verify-spike"
+rootProject.name = "tipbot"

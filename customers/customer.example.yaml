@@ -1,0 +1,21 @@
+# Who this bot collects tips for.
+#
+# One bot, one person, one wallet. A bot named @tipping_bot_for_user123 exists to collect for
+# user123 and nobody else - so the wallet is baked in here at deploy time, and nothing anyone
+# says in Telegram can point the money somewhere else.
+#
+# Copy to tipbot.yaml, fill in, run the bot. To change the wallet later, edit and restart.
+#
+# If the address has a typo the bot refuses to start. That is deliberate: a typo'd TON address
+# is a valid-looking string, and tips sent to one are gone for good.
+
+# Shown wherever a reply names who is being tipped: "Tip of 1 TON to @user123".
+name: "@user123"
+
+# Where the money goes. EQ..., UQ... and raw 0:... are all accepted - same wallet either way.
+wallet: "EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N"
+
+# Optional. The owner's private chat id, so they are also told privately when a tip lands.
+# Without it, confirmations still appear in whichever chat the tip was raised in.
+# The owner can find their id by messaging the bot; it is the same number as that chat.
+# ownerChatId: 123456789

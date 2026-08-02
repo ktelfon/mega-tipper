@@ -41,17 +41,26 @@ kotlin {
 }
 
 application {
-    // `./gradlew run` drives the chain-watching spike.
-    mainClass.set("dev.tipbot.spike.TonVerifySpikeKt")
+    // The bot is the product. `installDist` builds what the Docker image runs.
+    mainClass.set("dev.tipbot.spike.TipBotKt")
 }
 
-// `./gradlew runBot` starts the Telegram bot.
+// `./gradlew runBot` - kept as the name everything else refers to.
 tasks.register<JavaExec>("runBot") {
     group = "application"
     description = "Runs the Telegram bot (needs TELEGRAM_BOT_TOKEN in .env or the environment)"
     mainClass.set("dev.tipbot.spike.TipBotKt")
     classpath = sourceSets["main"].runtimeClasspath
     standardInput = System.`in`
+}
+
+// The original chain-watching spike, kept because it is still the quickest way to check what
+// TonAPI reports for an address without involving Telegram at all.
+tasks.register<JavaExec>("runSpike") {
+    group = "application"
+    description = "Watches an address for a payment: <address> <comment> <amountTon> [timeout] [poll]"
+    mainClass.set("dev.tipbot.spike.TonVerifySpikeKt")
+    classpath = sourceSets["main"].runtimeClasspath
 }
 
 // `./gradlew e2e` - the whole bot driven with real Telegram update JSON, no network.

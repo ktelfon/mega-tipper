@@ -3,9 +3,11 @@
 *.env
 !.env.example
 
-# The operator's real wallet file - customer chat ids and payout addresses.
+# Real wallet files - customer payout addresses. The .example ones are safe to commit.
 tipbot.yaml
+customers/*.yaml
 !tipbot.yaml.example
+!customers/*.example.yaml
 
 # Local database files
 *.db
