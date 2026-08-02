@@ -263,7 +263,7 @@ double-payout guard with it. On those, point `TIPBOT_JDBC_URL` at Postgres; noth
 ## Development
 
 ```bash
-./gradlew test      # 127 tests
+./gradlew test      # 133 tests
 ./gradlew e2e       # end-to-end only: real Telegram JSON in, sent messages out
 ./gradlew runBot    # start the bot
 ```

@@ -407,7 +407,7 @@ Genuinely small once 0–5 exist.
 ## Running it
 
 ```bash
-./gradlew test                 # 127 tests, all green
+./gradlew test                 # 133 tests, all green
 ./gradlew e2e                  # end-to-end only
 ./gradlew runBot               # the Telegram bot
 ./gradlew run --args="<address> <comment> <amountTon> [timeoutSec] [pollSec]"
@@ -452,14 +452,44 @@ Any of these work — Gradle auto-detects all of them, so no path needs committi
 
 ---
 
+## First real payment ✅ 2026-08-02
+
+**The happy path is no longer theoretical.** A 0.5 TON tip went the whole way: channel `/tip`,
+deep link into the private chat, amount tapped, paid in Tonkeeper, matched, confirmed, announced.
+
+```
+18:59:35  channel -100…605 -> /tip
+18:59:39  chat 1030895869 -> /start
+18:59:41  chat 1030895869 tapped tip:500000000
+19:00:08  Confirmed tip_8f09d9d7538bdae0 - 500000000 nanoTON
+```
+
+Timing: **19 seconds** to pay, **8 more** to notice — one poll interval. The 15-minute window is
+nowhere near tight.
+
+What the real event settled, none of which was certain before:
+
+- **The comment survives the deep link.** This was the single highest-risk assumption in the
+  build; if it had not, nothing would ever have matched.
+- **The receiving wallet was deployed by this very payment** — the event carries a
+  `ContractDeploy` for `wallet_v5r1` alongside the transfer. That is exactly the case the
+  non-bounceable address form was chosen for, and a bounceable link would have bounced it back.
+- **Events carry more than one action.** A matcher that read `actions[0]` would have worked here
+  only by luck; ours iterates.
+- **A self-send is allowed** by the wallet and by the chain — sender and recipient are the same
+  address, and the matcher does not look at the sender.
+- An earlier invoice went unpaid and was swept to `EXPIRED` correctly.
+
+The event is now pinned verbatim as `RealMainnetPaymentTest`, with only the address swapped for
+the suite's test address so a real wallet is not published next to a real name. Six tests run
+against the shape mainnet actually produced rather than the shape we imagined.
+
+---
+
 ## Not done yet
 
-**The one that matters: no payment has ever been sent through this flow.** Everything is
-verified against live mainnet *reads* — the matcher was proven against a real 10 TON transfer
-somebody else made. The happy path is proven by observation, not by a payment we originated.
-
-Specifically unverified until a real tip is sent:
-- whether `ton://transfer/<address>?amount=…&text=…` opens a wallet with **both** the amount and
-  the comment pre-filled. If the comment does not survive, nothing will ever match.
-- whether the Tonkeeper universal link behaves the same as the `ton://` URI
-- end-to-end timing: invoice to confirmation to announcement
+- **No second-party payment.** Every test so far has been the owner paying their own wallet. A
+  tip from a genuinely different sender is untested, though the matcher ignores the sender field
+  so there is little left to surprise us.
+- **Nothing automates the wallet tap.** `./gradlew e2e` covers everything up to and after it.
+- **Acting as a Telegram user** would need an MTProto client signed in to a real account.
