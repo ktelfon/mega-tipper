@@ -6,8 +6,10 @@ import org.telegram.telegrambots.longpolling.TelegramBotsLongPollingApplication
 import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery
 import org.telegram.telegrambots.meta.api.methods.GetMe
+import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage
 import org.telegram.telegrambots.meta.api.objects.Update
+import org.telegram.telegrambots.meta.api.objects.User
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow
@@ -36,15 +38,30 @@ class TipBot(
     }
 
     private fun handleMessage(update: Update) {
-        val chatId = update.message.chatId
-        val text = update.message.text
+        val message = update.message
+        val chatId = message.chatId
+        val isGroup = message.chat.isGroupChat || message.chat.isSuperGroupChat
 
         // Log the command only, never the full message: a wallet address is not secret, but
-        // there is no reason to write whatever else people type into the operator's logs.
-        log.info("chat {} -> {}", chatId, text.trim().substringBefore(' ').take(32))
+        // there is no reason to write whatever else people type into the operator's logs. In a
+        // group with privacy mode off this is every message in the room, which makes logging
+        // the text outright unacceptable.
+        log.info("chat {} -> {}", chatId, message.text.trim().substringBefore(' ').take(32))
 
-        val reply = safely(chatId) { handler.handle(chatId, text, Instant.now().epochSecond) }
-        send(chatId, reply)
+        val incoming = CommandHandler.Incoming(
+            chatId = chatId,
+            userId = message.from?.id ?: chatId,
+            text = message.text,
+            isGroup = isGroup,
+            // Only a reply to a *person* names a tip recipient. A reply to another bot, or to
+            // one of our own messages, would otherwise be read as "tip that account".
+            replyToUserId = message.replyToMessage?.from?.takeIf { !it.getIsBot() }?.id,
+            replyToName = message.replyToMessage?.from?.takeIf { !it.getIsBot() }?.let { displayName(it) },
+            senderIsAdmin = { isAdmin(chatId, message.from?.id) },
+        )
+
+        val reply = safely(chatId) { handler.handle(incoming, Instant.now().epochSecond) }
+        if (reply != null) send(chatId, reply)
     }
 
     private fun handleCallback(update: Update) {
@@ -61,12 +78,36 @@ class TipBot(
             log.warn("Failed answering callback from {}", chatId, e)
         }
 
-        val reply = safely(chatId) { handler.handleCallback(chatId, query.data, Instant.now().epochSecond) }
-        send(chatId, reply)
+        val reply = safely(chatId) {
+            // The tipper is whoever tapped, which in a group is nobody's chat id but their own.
+            handler.handleCallback(chatId, query.from.id, query.data, Instant.now().epochSecond)
+        }
+        if (reply != null) send(chatId, reply)
+    }
+
+    private fun displayName(user: User): String =
+        user.userName?.let { "@$it" } ?: listOfNotNull(user.firstName, user.lastName).joinToString(" ").ifBlank { "them" }
+
+    /**
+     * Whether [userId] can change the group's payout wallet. Asked lazily and only for `/setup`,
+     * since it costs a Telegram round trip.
+     *
+     * Fails closed: if the lookup errors we treat the sender as an ordinary member, because the
+     * cost of being wrong is someone redirecting a group's tips to their own wallet.
+     */
+    private fun isAdmin(chatId: Long, userId: Long?): Boolean {
+        if (userId == null) return false
+        return try {
+            val member = client.execute(GetChatMember(chatId.toString(), userId))
+            member.status in setOf("creator", "administrator")
+        } catch (e: Exception) {
+            log.warn("Could not check admin status of {} in {}", userId, chatId, e)
+            false
+        }
     }
 
     /** One bad message must not take the bot down for everyone else. */
-    private fun safely(chatId: Long, block: () -> CommandHandler.Reply): CommandHandler.Reply =
+    private fun safely(chatId: Long, block: () -> CommandHandler.Reply?): CommandHandler.Reply? =
         try {
             block()
         } catch (e: Exception) {

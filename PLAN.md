@@ -238,6 +238,48 @@ Notifications go to both sides, and to one person only once when a creator tests
 
 ---
 
+## Group tipping ✅ DONE
+
+`/tip` (or `!tip`) in a group. Sent as a **reply**, it tips that person; on its own, it tips
+the group's own wallet. The amount menu and payment button land in the group — one tap, nobody
+leaves the conversation.
+
+Because a private chat's `chatId` **is** the user's id, `creators` already supported per-person
+lookup — reply-tipping needed no schema change.
+
+### Telegram privacy mode gates `!tip`
+
+`getMe` reports `can_read_all_group_messages: false`, the BotFather default. A bot in a group
+only receives messages starting with `/`, mentioning it, or replying to it — **`!tip` never
+arrives** until privacy mode is turned off in BotFather. `/tip` works either way, so both
+prefixes are accepted and the choice is a deployment decision, not a code one.
+
+### A group is not a private chat
+
+The DM rule "any message that parses as an address is a registration" was actively dangerous
+here: it would answer *every line anyone typed* with an address complaint, and the bot would be
+removed within minutes. In a group the bot now stays silent on ordinary chatter, on unknown
+`/commands` (they belong to other bots), and on anything addressed to `@another_bot`.
+
+### Setting a group's wallet is admin-only
+
+Otherwise any member could run `/setup <their own address>` and redirect the group's earnings.
+The check is a `getChatMember` call, resolved lazily so it costs a round trip only for `/setup`,
+and it **fails closed** — a failed lookup is treated as "not an admin".
+
+### The tipper is the person, never the chat
+
+On a button tap in a group the callback's `from.id` is the tipper; `chatId` is the room. Using
+the chat id would credit the tip to the group and send the thank-you to everyone.
+
+### Accepted: public nonces
+
+In a group the nonce is posted in the open, so it is unguessable but not secret. A stranger
+could attach a live nonce to their own transfer and have it credited as their tip. The creator
+is paid either way — the exposure is mis-attribution, not theft — and it buys the one-tap flow.
+
+---
+
 ## Step 6 — Production hardening
 
 Webhooks instead of polling, rate limits, expiry sweeper for dead invoices.
@@ -257,7 +299,7 @@ Genuinely small once 0–5 exist.
 ## Running it
 
 ```bash
-./gradlew test                 # 105 tests, all green
+./gradlew test                 # 117 tests, all green
 ./gradlew runBot               # the Telegram bot
 ./gradlew run --args="<address> <comment> <amountTon> [timeoutSec] [pollSec]"
 ```

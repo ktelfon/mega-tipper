@@ -30,7 +30,7 @@ class CommandHandlerTest {
         dir.toFile().deleteRecursively()
     }
 
-    private fun send(text: String, chatId: Long = CHAT) = handler.handle(chatId, text, NOW).text
+    private fun send(text: String, chatId: Long = CHAT) = handler.handle(chatId, text, NOW)!!.text
 
     @Test
     fun `start explains the bot is non-custodial`() {
@@ -154,7 +154,7 @@ class CommandHandlerTest {
     fun `opening a share link offers amounts for that creator`() {
         send("/setup $EQ", chatId = CHAT)
 
-        val reply = handler.handle(TIPPER, "/start $CHAT", NOW)
+        val reply = handler.handle(TIPPER, "/start $CHAT", NOW)!!
 
         assertTrue(reply.buttons.isNotEmpty(), "a tipper needs something to tap")
         val payloads = reply.buttons.map { (it as CommandHandler.Button.Callback).data }
@@ -163,17 +163,17 @@ class CommandHandlerTest {
 
     @Test
     fun `a share link for someone who never set up a wallet does not offer to take money`() {
-        val reply = handler.handle(TIPPER, "/start $CHAT", NOW)
+        val reply = handler.handle(TIPPER, "/start $CHAT", NOW)!!
 
         assertTrue(reply.buttons.isEmpty(), "there is nowhere to send the funds")
-        assertTrue(reply.text.contains("hasn't registered"), reply.text)
+        assertTrue(reply.text.contains("no wallet"), reply.text)
     }
 
     @Test
     fun `tapping an amount issues a pending tip against the creator's wallet`() {
         send("/setup $EQ", chatId = CHAT)
 
-        val reply = handler.handleCallback(TIPPER, "tip:$CHAT:1000000000", NOW)
+        val reply = handler.handleCallback(TIPPER, TIPPER, "tip:$CHAT:1000000000", NOW)
 
         val tip = store.pendingTips(NOW).single()
         assertEquals(CHAT, tip.creatorChatId)
@@ -187,7 +187,7 @@ class CommandHandlerTest {
     fun `the payment link carries the address, exact amount and nonce`() {
         send("/setup $EQ", chatId = CHAT)
 
-        val reply = handler.handleCallback(TIPPER, "tip:$CHAT:1500000000", NOW)
+        val reply = handler.handleCallback(TIPPER, TIPPER, "tip:$CHAT:1500000000", NOW)
         val nonce = store.pendingTips(NOW).single().nonce
 
         // Non-bounceable, so a tip to a creator whose wallet is not yet deployed still lands.
@@ -200,7 +200,7 @@ class CommandHandlerTest {
     fun `the pay button is an https link because Telegram rejects other schemes`() {
         send("/setup $EQ", chatId = CHAT)
 
-        val reply = handler.handleCallback(TIPPER, "tip:$CHAT:1000000000", NOW)
+        val reply = handler.handleCallback(TIPPER, TIPPER, "tip:$CHAT:1000000000", NOW)
 
         val button = reply.buttons.single() as CommandHandler.Button.Url
         assertTrue(button.url.startsWith("https://"), button.url)
@@ -211,7 +211,7 @@ class CommandHandlerTest {
         // A reused nonce would let one payment be credited against two requests.
         send("/setup $EQ", chatId = CHAT)
 
-        repeat(5) { handler.handleCallback(TIPPER, "tip:$CHAT:1000000000", NOW) }
+        repeat(5) { handler.handleCallback(TIPPER, TIPPER, "tip:$CHAT:1000000000", NOW) }
 
         val nonces = store.pendingTips(NOW).map { it.nonce }
         assertEquals(5, nonces.size)
@@ -224,7 +224,7 @@ class CommandHandlerTest {
 
         listOf("", "tip:", "tip:$CHAT", "nope:$CHAT:1000000000", "tip:abc:1000000000", "tip:$CHAT:1e9")
             .forEach { payload ->
-                handler.handleCallback(TIPPER, payload, NOW)
+                handler.handleCallback(TIPPER, TIPPER, payload, NOW)
             }
 
         assertTrue(store.pendingTips(NOW).isEmpty(), "garbage in a payload must not reach the store")
@@ -256,13 +256,158 @@ class CommandHandlerTest {
     fun `tipping someone with no wallet is refused before anything is stored`() {
         val reply = send("/tip $OTHER_CHAT 1")
 
-        assertTrue(reply.contains("hasn't registered"), reply)
+        assertTrue(reply.contains("no wallet"), reply)
+        assertTrue(store.pendingTips(NOW).isEmpty())
+    }
+
+    // --- groups ----------------------------------------------------------------------------
+    //
+    // A bot in a group sees traffic meant for other people and other bots. Almost every test
+    // here is about what the bot must *not* say.
+
+    private fun inGroup(
+        text: String,
+        userId: Long = TIPPER,
+        replyTo: Long? = null,
+        replyName: String? = null,
+        admin: Boolean = false,
+    ) = handler.handle(
+        CommandHandler.Incoming(
+            chatId = GROUP,
+            userId = userId,
+            text = text,
+            isGroup = true,
+            replyToUserId = replyTo,
+            replyToName = replyName,
+            senderIsAdmin = { admin },
+        ),
+        NOW,
+    )
+
+    @Test
+    fun `ordinary group chatter is ignored, not answered`() {
+        // The old behaviour read every message as a wallet address. In a group that is a reply
+        // to every single line anyone types, which gets the bot removed within minutes.
+        listOf("hello there", "what do you think?", "0.5", EQ).forEach { text ->
+            assertNull(inGroup(text), "should have stayed silent on: $text")
+        }
+        assertNull(store.findCreator(GROUP), "group chatter must never register a wallet")
+    }
+
+    @Test
+    fun `a command aimed at another bot is ignored`() {
+        assertNull(inGroup("/tip@some_other_bot"))
+        assertNull(inGroup("/start@rival_bot"))
+    }
+
+    @Test
+    fun `an unknown slash command in a group is left to whoever it belongs to`() {
+        assertNull(inGroup("/roll 2d6"))
+    }
+
+    @Test
+    fun `bang tip works as well as slash tip`() {
+        inGroup("/setup $EQ", admin = true)
+
+        val bang = inGroup("!tip")!!
+        val slash = inGroup("/tip")!!
+
+        assertEquals(slash.buttons.size, bang.buttons.size)
+        assertTrue(bang.buttons.isNotEmpty(), "!tip should offer amounts too")
+    }
+
+    @Test
+    fun `only an admin can point the group's tips at a wallet`() {
+        val refused = inGroup("/setup $EQ", admin = false)!!
+
+        assertTrue(refused.text.contains("admin"), refused.text)
+        assertNull(store.findCreator(GROUP), "a member must not be able to redirect the group's earnings")
+
+        inGroup("/setup $EQ", admin = true)
+        assertEquals(RAW, store.findCreator(GROUP)?.rawAddress)
+    }
+
+    @Test
+    fun `tip in a group pays the group's wallet`() {
+        inGroup("/setup $EQ", admin = true)
+
+        val reply = inGroup("/tip 1", userId = TIPPER)!!
+
+        val tip = store.pendingTips(NOW).single()
+        assertEquals(GROUP, tip.creatorChatId)
+        assertEquals(TIPPER, tip.tipperChatId, "the tipper is the person, never the group")
+        assertEquals(RAW, tip.rawAddress)
+        assertTrue(reply.text.contains(tip.nonce), reply.text)
+    }
+
+    @Test
+    fun `tip as a reply pays the person being replied to`() {
+        // The social point of the feature: tip whoever just said the useful thing.
+        send("/setup $EQ", chatId = CREATOR_USER)
+
+        val reply = inGroup("/tip", userId = TIPPER, replyTo = CREATOR_USER, replyName = "@bob")!!
+
+        assertTrue(reply.text.contains("@bob"), "the menu should name who gets paid: ${reply.text}")
+        val payloads = reply.buttons.map { (it as CommandHandler.Button.Callback).data }
+        assertTrue(payloads.all { it.startsWith("tip:$CREATOR_USER:") }, payloads.toString())
+    }
+
+    @Test
+    fun `replying to someone with no wallet tells them how to get one`() {
+        val reply = inGroup("/tip", replyTo = CREATOR_USER, replyName = "@bob")!!
+
+        assertTrue(reply.buttons.isEmpty(), "nowhere to send it")
+        assertTrue(reply.text.contains("/setup"), "it should convert them: ${reply.text}")
+    }
+
+    @Test
+    fun `tipping a group with no wallet does not silently create an invoice`() {
+        val reply = inGroup("/tip")!!
+
+        assertTrue(reply.buttons.isEmpty())
+        assertTrue(store.pendingTips(NOW).isEmpty())
+    }
+
+    @Test
+    fun `a tap in a group credits the tapper, not the group`() {
+        inGroup("/setup $EQ", admin = true)
+
+        handler.handleCallback(GROUP, TIPPER, "tip:$GROUP:1000000000", NOW)
+
+        val tip = store.pendingTips(NOW).single()
+        assertEquals(GROUP, tip.creatorChatId)
+        assertEquals(TIPPER, tip.tipperChatId)
+    }
+
+    @Test
+    fun `two people can tip the same group at once without colliding`() {
+        inGroup("/setup $EQ", admin = true)
+
+        handler.handleCallback(GROUP, TIPPER, "tip:$GROUP:1000000000", NOW)
+        handler.handleCallback(GROUP, OTHER_TIPPER, "tip:$GROUP:1000000000", NOW)
+
+        val tips = store.pendingTips(NOW)
+        assertEquals(2, tips.size)
+        assertEquals(2, tips.map { it.nonce }.toSet().size, "identical amounts still need distinct nonces")
+        assertEquals(setOf(TIPPER, OTHER_TIPPER), tips.map { it.tipperChatId }.toSet())
+    }
+
+    @Test
+    fun `a bad amount in a group is explained rather than ignored`() {
+        inGroup("/setup $EQ", admin = true)
+
+        val reply = inGroup("/tip banana")!!
+
+        assertTrue(reply.text.contains("amount"), reply.text)
         assertTrue(store.pendingTips(NOW).isEmpty())
     }
 
     private companion object {
         const val CHAT = 12345L
         const val TIPPER = 99999L
+        const val OTHER_TIPPER = 77777L
+        const val CREATOR_USER = 4242L
+        const val GROUP = -1001234567890L
         const val OTHER_CHAT = 54321L
         const val EQ = "EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N"
         const val UQ = "UQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqEBI"
