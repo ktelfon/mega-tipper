@@ -4,46 +4,35 @@ package dev.tipbot.spike
  * Turns an incoming message into a reply, or into silence. Pure apart from the store: no
  * network, no Telegram types, so the whole conversation can be tested without a bot token.
  *
- * Deliberately stateless - there is no "awaiting input" flag anywhere. `/setup` followed by a
- * bare address works because any message that parses as a TON address is a registration, and
- * the tipping flow carries the creator's id in the deep link and in the button payload rather
- * than in memory. Nothing is lost on a restart, and a redeploy cannot strand a half-finished
- * conversation.
+ * **One bot, one person, one wallet.** The address comes from [OwnerConfig] at deploy time, so
+ * there is nothing to register, nothing to look up, and no message anyone can send that points
+ * the money somewhere else. Wherever the bot is and whoever asks, tips go to the same address.
+ *
+ * Stateless: there is no "awaiting input" flag anywhere. The amount travels in the button
+ * payload, so a tap on a button posted days ago still works after a restart.
  *
  * **Groups are not private chats.** A bot in a group sees traffic meant for other people and
- * other bots, so the rules differ: unrecognised text is ignored rather than answered, and
- * changing the group's payout wallet is restricted to admins. Getting this wrong makes the bot
- * a spammer that gets removed within minutes.
+ * other bots, so unrecognised text is ignored rather than answered. Getting this wrong makes the
+ * bot a spammer that gets removed within minutes.
  */
 class CommandHandler(
     private val store: TipStore,
+    private val owner: OwnerConfig,
     private val testnet: Boolean,
     private val botUsername: String,
-    /**
-     * Whether anyone may set a wallet by chatting to the bot. Off by default, because this
-     * deployment model is operator-run: wallets come from the operator's file, and a group
-     * owner who could change one from inside the group is a way to lose someone's earnings.
-     */
-    private val allowSelfSetup: Boolean = false,
 ) {
 
     /**
      * One message, with the context needed to answer it safely in a group.
      *
-     * @property chatId         where to reply; in a private chat this is also the user's id
-     * @property userId         who sent it - the tipper, which in a group is not [chatId]
-     * @property replyToUserId  if this replies to someone, who they are: the tip recipient
-     * @property senderIsAdmin  resolved lazily, since it costs a Telegram round trip and only
-     *                          `/setup` in a group needs the answer
+     * @property chatId where to reply, and where the confirmation will be announced
+     * @property userId who sent it - the tipper, which in a group is not [chatId]
      */
     data class Incoming(
         val chatId: Long,
         val userId: Long,
         val text: String,
         val isGroup: Boolean = false,
-        val replyToUserId: Long? = null,
-        val replyToName: String? = null,
-        val senderIsAdmin: () -> Boolean = { false },
     )
 
     /** A button label plus what tapping it does. [TipBot] renders these; nothing here knows Telegram. */
@@ -68,230 +57,78 @@ class CommandHandler(
         val trimmed = message.text.trim()
         val head = trimmed.substringBefore(' ')
 
-        // "/tip@some_other_bot" is not ours. Groups routinely hold several bots, and answering
-        // a command addressed to one of them is how a bot gets removed from a group.
+        // "/tip@some_other_bot" is not ours. Groups routinely hold several bots, and answering a
+        // command addressed to one of them is how a bot gets removed from a group.
         val mention = head.substringAfter('@', "")
         if (mention.isNotEmpty() && !mention.equals(botUsername, ignoreCase = true)) return null
 
         // "!tip" as well as "/tip": Telegram only delivers "/" commands to a bot with privacy
         // mode on, but "!" is the friendlier thing to type once privacy mode is off.
-        val isCommand = head.startsWith("/") || head.startsWith("!")
+        if (!head.startsWith("/") && !head.startsWith("!")) return null
+
         val verb = head.substringBefore('@').removePrefix("/").removePrefix("!").lowercase()
         val argument = trimmed.substringAfter(' ', missingDelimiterValue = "").trim()
 
-        if (!isCommand) {
-            // In a private chat with self-setup on, a bare address is a registration. In a
-            // group it is somebody talking to their friends, and must not be answered.
-            return if (message.isGroup || !allowSelfSetup) null
-            else registerWallet(message.chatId, trimmed, now)
-        }
-
         return when (verb) {
-            // `t.me/<bot>?start=<creatorChatId>` arrives here as "/start <creatorChatId>".
-            "start" -> if (argument.isNotEmpty() && !message.isGroup) startPayload(argument) else welcome(message)
-            "help" -> welcome(message)
-            "setup" -> setup(message, argument, now)
-            // How the operator finds the id to put in the wallet file. Deliberately available
-            // to anyone: a chat id is not a secret, and the operator is often not in the group.
-            "chatid" -> Reply("Chat id: `${message.chatId}`\n\nGive this to whoever runs the bot.")
-            "wallet" -> showWallet(message)
-            "link" -> showShareLink(message)
-            "tip" -> tipCommand(message, argument, now)
+            "start", "help" -> welcome(message)
+            "tip" -> tip(message, argument, now)
+            "wallet" -> Reply("Tips go straight to ${owner.name}'s wallet:\n\n${friendlyAddress()}")
+            "link" -> Reply("Anyone can tip ${owner.name} here:\n\nhttps://t.me/$botUsername")
             // An unknown "/command" in a group belongs to someone else. Only answer in private.
             else -> if (message.isGroup) null else Reply("I don't know that command. Try /help.")
         }
     }
 
     /**
-     * Handles an inline-button tap. The creator and amount travel in the payload, so a tap on
-     * a button posted days ago still works after a restart.
+     * Handles an inline-button tap. The amount travels in the payload, so a tap on a button
+     * posted days ago still works after a restart.
      *
-     * @param userId who tapped - in a group this is the tipper, not the chat
+     * @param chatId where the button was tapped - the confirmation is announced there
+     * @param userId who tapped; in a group this is the tipper, not the chat
      */
     fun handleCallback(chatId: Long, userId: Long, data: String, now: Long): Reply {
         val parts = data.split(':')
-        val creatorChatId = parts.getOrNull(1)?.toLongOrNull()
-        val amountNano = parts.getOrNull(2)?.toLongOrNull()
+        val amountNano = parts.getOrNull(1)?.toLongOrNull()
 
-        if (parts.size != 3 || parts[0] != CALLBACK_TIP || creatorChatId == null || amountNano == null) {
-            return Reply("That button is from an older version of me. Send /start to begin again.")
+        if (parts.size != 2 || parts[0] != CALLBACK_TIP || amountNano == null) {
+            return Reply("That button is from an older version of me. Send /tip to start again.")
         }
 
-        return issueInvoice(creatorChatId, tipperChatId = userId, amountNano = amountNano, now = now)
+        return issueInvoice(chatId, userId, amountNano, now)
     }
 
-    private fun welcome(message: Incoming) = Reply(
-        if (message.isGroup) {
-            buildString {
-                appendLine("I take tips in TON, straight from one wallet to another. Nothing is ever held here.")
-                appendLine()
-                appendLine("/tip - tip this group's wallet")
-                appendLine("/tip - as a reply to someone, tips them instead")
-                append(if (allowSelfSetup) "/setup - admins only: set the wallet tips go to" else "/chatid - the id this chat is known by")
-            }
+    private fun welcome(message: Incoming): Reply {
+        val intro = if (message.isGroup) {
+            "I collect tips for ${owner.name}, in TON.\n\n" +
+                "Send /tip to pick an amount. The money goes straight from your wallet to theirs " +
+                "- I never hold it, and I couldn't spend it if I wanted to."
         } else {
-            buildString {
-                appendLine("Hi! I take tips in TON and send them straight to the right wallet.")
-                appendLine()
-                appendLine("Nothing is held for anyone - tips go wallet to wallet, and I only watch the")
-                appendLine("chain to confirm they arrived.")
-                appendLine()
-                if (allowSelfSetup) appendLine("/setup - register the wallet that receives your tips")
-                appendLine("/wallet - show the wallet I have on file")
-                appendLine("/tip <amount> - send yourself a test tip")
-                appendLine("/chatid - the id this chat is known by")
-                if (!allowSelfSetup) {
-                    appendLine()
-                    append("Wallets are configured by whoever runs this bot - ask them to add you.")
-                }
-            }
-        }
-    )
-
-    /**
-     * In a group this sets where *the group's* tips go, so it is admin-only. Without that check
-     * any member could point the group's earnings at their own wallet.
-     */
-    private fun setup(message: Incoming, argument: String, now: Long): Reply {
-        if (!allowSelfSetup) {
-            return Reply(
-                "Wallets on this bot are set by whoever runs it, not from chat.\n\n" +
-                    "Ask them to add this chat, and send them the id from /chatid."
-            )
+            "Hi! I collect tips for ${owner.name}, in TON.\n\n" +
+                "Nothing is held here - tips go wallet to wallet, and I only watch the chain to " +
+                "confirm they arrived.\n\n" +
+                "Pick an amount below, or send /tip 2.5 for something specific."
         }
 
-        if (message.isGroup && !message.senderIsAdmin()) {
-            return Reply("Only an admin can set the wallet this group's tips go to.")
-        }
+        // Offering the amounts straight away, rather than making /start a dead end that only
+        // explains that /tip exists.
+        return Reply(intro, buttons = amountButtons())
+    }
 
+    private fun tip(message: Incoming, argument: String, now: Long): Reply =
         if (argument.isEmpty()) {
-            return Reply(
-                if (message.isGroup) {
-                    "Send /setup followed by the TON address this group's tips should go to."
-                } else {
-                    "Send me your TON wallet address and I'll register it for tips.\n\n" +
-                        "It looks like EQ... or UQ... - copy it from Tonkeeper or whichever wallet you use."
-                }
-            )
-        }
-
-        return registerWallet(message.chatId, argument, now, isGroup = message.isGroup)
-    }
-
-    private fun registerWallet(chatId: Long, input: String, now: Long, isGroup: Boolean = false): Reply =
-        when (val result = AddressNormalizer.normalize(input, testnet)) {
-            is AddressNormalizer.Result.Ok -> {
-                store.upsertCreator(chatId, result.raw, now)
-                if (isGroup) {
-                    Reply(
-                        "Wallet registered for this group.\n\n${result.raw}\n\n" +
-                            "Anyone here can now send /tip and pay straight into it."
-                    )
-                } else {
-                    Reply(
-                        "Wallet registered.\n\n${result.raw}\n\n" +
-                            "Tips sent to you will land here. Send another address any time to change it.\n\n" +
-                            "Your tip link:\n${shareLink(chatId)}\n\n" +
-                            "Share it anywhere, or add me to a group and people can tip you with /tip."
-                    )
-                }
-            }
-
-            is AddressNormalizer.Result.Rejected -> Reply(result.reason)
-        }
-
-    private fun showWallet(message: Incoming): Reply {
-        val creator = store.findCreator(message.chatId)
-            ?: return Reply(
-                if (message.isGroup) "This group has no wallet yet. An admin can set one with /setup."
-                else "You haven't registered a wallet yet. Send /setup to get started."
-            )
-
-        return Reply(
-            if (message.isGroup) "Tips here go to:\n\n${creator.rawAddress}"
-            else "Your tips go to:\n\n${creator.rawAddress}"
-        )
-    }
-
-    private fun showShareLink(message: Incoming): Reply {
-        store.findCreator(message.chatId)
-            ?: return Reply("Register a wallet first with /setup, then I can give you a tip link.")
-
-        return Reply("Share this to collect tips:\n\n${shareLink(message.chatId)}")
-    }
-
-    private fun shareLink(creatorChatId: Long) = "https://t.me/$botUsername?start=$creatorChatId"
-
-    private fun startPayload(payload: String): Reply {
-        val creatorChatId = payload.toLongOrNull()
-            ?: return Reply("That tip link looks broken. Ask for a fresh one.")
-
-        return tipMenu(creatorChatId, "them")
-    }
-
-    /**
-     * `/tip` in a group tips the group's wallet, or - when sent as a reply - the person being
-     * replied to. That second form is the one that matters socially: you tip the person who
-     * just said the useful thing, without either of you leaving the conversation.
-     */
-    private fun tipCommand(message: Incoming, argument: String, now: Long): Reply {
-        val parts = argument.split(Regex("\\s+")).filter { it.isNotEmpty() }
-
-        if (message.isGroup) {
-            val recipient = message.replyToUserId ?: message.chatId
-            val label = message.replyToName ?: if (message.replyToUserId != null) "them" else "this group"
-
-            return when (parts.size) {
-                0 -> tipMenu(
-                    recipient,
-                    label,
-                    // Whose problem it is to fix depends on who was being tipped.
-                    if (message.replyToUserId != null) setupHintForPerson else setupHintForGroup,
-                )
-                1 -> withAmount(parts[0]) { nano -> issueInvoice(recipient, message.userId, nano, now) }
-                else -> Reply("Send /tip on its own to pick an amount, or /tip 1 to go straight there.")
+            Reply("How much would you like to tip ${owner.name}?", buttons = amountButtons())
+        } else {
+            when (val amount = TipAmount.parse(argument)) {
+                is TipAmount.Result.Rejected -> Reply(amount.reason)
+                is TipAmount.Result.Ok -> issueInvoice(message.chatId, message.userId, amount.nano, now)
             }
         }
 
-        // Private chat. One argument tips your own wallet, which is how the whole flow gets
-        // tested without a second account.
-        val (creatorChatId, rawAmount) = when (parts.size) {
-            1 -> message.chatId to parts[0]
-            2 -> (parts[0].toLongOrNull() ?: return Reply("I couldn't read \"${parts[0]}\" as a creator id."))
-                .to(parts[1])
-
-            else -> return Reply(
-                "Send /tip <amount> to tip your own wallet as a test, like /tip 1.\n" +
-                    "To tip someone else, open their tip link instead."
-            )
-        }
-
-        return withAmount(rawAmount) { nano -> issueInvoice(creatorChatId, message.userId, nano, now) }
+    private fun amountButtons() = PRESET_NANO.map { nano ->
+        Button.Callback("${TipAmount.format(nano)} TON", "$CALLBACK_TIP:$nano")
     }
 
-    private inline fun withAmount(raw: String, issue: (Long) -> Reply): Reply =
-        when (val amount = TipAmount.parse(raw)) {
-            is TipAmount.Result.Rejected -> Reply(amount.reason)
-            is TipAmount.Result.Ok -> issue(amount.nano)
-        }
-
-    /**
-     * The amount picker. [label] names the recipient in a way that reads in the chat it lands
-     * in, and [setupHint] tells the right person how to fix a missing wallet - which differs,
-     * since a group's wallet is set by an admin in the group and a person's is set in a DM.
-     */
-    private fun tipMenu(creatorChatId: Long, label: String, setupHint: String = setupHintForPerson): Reply {
-        store.findCreator(creatorChatId)
-            ?: return Reply("There's no wallet set up for $label yet. $setupHint")
-
-        return Reply(
-            "Pick an amount to tip $label.\n\n" +
-                "It goes straight from your wallet to theirs - I never hold it.",
-            buttons = PRESET_NANO.map { nano ->
-                Button.Callback("${TipAmount.format(nano)} TON", "$CALLBACK_TIP:$creatorChatId:$nano")
-            },
-        )
-    }
+    private fun friendlyAddress() = AddressNormalizer.toUserFriendly(owner.raw, testnet)
 
     /**
      * Creates the pending tip and hands back the payment links.
@@ -299,28 +136,27 @@ class CommandHandler(
      * The nonce comes from [TipStore.createTip], which draws it from `SecureRandom`. That is a
      * security property, not a style choice: anyone who can guess a live nonce can attach it to
      * their own unrelated transfer and have it credited as someone else's tip. In a group the
-     * nonce is posted publicly, so it is only ever unguessable, never secret - the creator is
-     * paid either way, and the exposure is mis-attribution rather than theft.
+     * nonce is posted in the open, so it is unguessable but never secret - the owner is paid
+     * either way, and the exposure is mis-attribution rather than theft.
      */
-    private fun issueInvoice(creatorChatId: Long, tipperChatId: Long, amountNano: Long, now: Long): Reply {
-        val creator = store.findCreator(creatorChatId)
-            ?: return Reply("There's no wallet registered for that yet, so there's nowhere to send a tip.")
-
+    private fun issueInvoice(originChatId: Long, tipperChatId: Long, amountNano: Long, now: Long): Reply {
         val tip = store.createTip(
-            creatorChatId = creatorChatId,
+            originChatId = originChatId,
             tipperChatId = tipperChatId,
-            rawAddress = creator.rawAddress,
+            // Recorded per tip, so changing the configured wallet cannot redirect an invoice
+            // that is already in flight.
+            rawAddress = owner.raw,
             amountNano = amountNano,
             now = now,
         )
 
-        val address = AddressNormalizer.toUserFriendly(creator.rawAddress, testnet)
+        val address = friendlyAddress()
         val amount = TipAmount.format(amountNano)
         val minutes = (tip.expiresAt - tip.createdAt) / 60
 
         return Reply(
             text = """
-            Tip of $amount TON
+            Tip of $amount TON to ${owner.name}
 
             Tap the button to open your wallet, or use this link:
             ${TipLink.tonUri(address, amountNano, tip.nonce)}
@@ -335,15 +171,6 @@ class CommandHandler(
             ),
         )
     }
-
-    /** Told to whoever tried to tip, so a missing wallet reads as "not yet" rather than "broken". */
-    private val setupHintForPerson: String
-        get() = if (allowSelfSetup) "They can start receiving tips by sending me /setup in a private chat."
-        else "Whoever runs this bot can add them."
-
-    private val setupHintForGroup: String
-        get() = if (allowSelfSetup) "An admin can set one with /setup here."
-        else "Whoever runs this bot can add it - send them the id from /chatid."
 
     private companion object {
         const val CALLBACK_TIP = "tip"

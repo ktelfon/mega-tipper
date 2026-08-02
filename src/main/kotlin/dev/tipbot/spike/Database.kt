@@ -11,7 +11,7 @@ import javax.sql.DataSource
  * decision is not load-bearing: point [connect] at a different JDBC URL and everything
  * downstream is unaffected. That matters because cloud hosts without an attached volume
  * have an ephemeral filesystem, and a SQLite file there is wiped on redeploy - taking the
- * creator wallet mappings and the double-payout guard with it.
+ * in-flight invoices and the double-payout guard with it.
  *
  * Portability rules followed by the DDL below:
  *  - `BIGINT` for ids, amounts and timestamps. Telegram chat ids exceed 32 bits, and
@@ -46,19 +46,9 @@ object Database {
             conn.createStatement().use { st ->
                 st.executeUpdate(
                     """
-                    CREATE TABLE IF NOT EXISTS creators (
-                        telegram_chat_id BIGINT PRIMARY KEY,
-                        raw_address      TEXT   NOT NULL,
-                        created_at       BIGINT NOT NULL
-                    )
-                    """.trimIndent()
-                )
-
-                st.executeUpdate(
-                    """
                     CREATE TABLE IF NOT EXISTS tips (
                         nonce            TEXT   PRIMARY KEY,
-                        creator_chat_id  BIGINT NOT NULL,
+                        origin_chat_id   BIGINT NOT NULL,
                         tipper_chat_id   BIGINT,
                         raw_address      TEXT   NOT NULL,
                         amount_nano      BIGINT NOT NULL,

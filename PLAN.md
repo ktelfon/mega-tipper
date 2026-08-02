@@ -280,51 +280,55 @@ is paid either way — the exposure is mis-attribution, not theft — and it buy
 
 ---
 
-## Operator-run configuration ✅ DONE
+## One bot, one person, one wallet ✅ DONE
 
-The deployment model changed, and it changed the product. This is **not** a self-serve bot
-people sign up for. A group owner asks the operator for a tip bot; the operator adds an entry to
-`tipbot.yaml` and deploys. Nobody in the group pastes an address, and nobody in the group can
-change one.
+The final shape, and a large simplification. `@tipping_bot_for_user123` is deployed to collect
+for user123 and nobody else. The wallet is baked in at deploy time:
 
 ```yaml
-allowSelfSetup: false
-wallets:
-  - chatId: -1001234567890
-    label: "Bob's Crypto Chat"
-    address: "EQCD39VS..."
+name: "@user123"
+wallet: "EQCD39VS..."
+# ownerChatId: 123456789   # optional private notification
 ```
 
-### The file is the source of truth
+### What this deleted
 
-Every entry is re-applied to `creators` on each boot, so *edit and restart* is the whole
-configuration workflow. The database stops being state anyone manages and becomes just where the
-poller reads from.
+Personalising the bot removed a whole layer rather than adding one:
 
-### A bad address aborts startup
+- the `creators` table, and `upsertCreator` / `findCreator` with it
+- the multi-wallet `wallets:` list and its per-chat mapping
+- `/setup` in every form, and the `allowSelfSetup` flag
+- the group-admin `getChatMember` check — nothing in chat can change a wallet, so there is no
+  privileged action left to guard
+- reply-targeting, `/chatid`, and the `?start=<creatorId>` deep-link payload
 
-Validation happens at boot, not on first payment. A typo'd TON address is a valid-looking string
-that silently swallows every tip sent to it, so a deployment that would do that must refuse to
-start — naming the offending entry by its label. Duplicate chat ids are refused too, rather than
-letting the last one silently win.
+Net: **137 tests down to 110**, and the address now comes from one place instead of being looked
+up per message.
 
-### `/setup` is off by default
+### Confirmations land where the tip was raised
 
-`allowSelfSetup: false` means no message can change a wallet — not from a group admin, not from a
-DM, not from a bare pasted address. The flag exists because the operator may want to hand that
-power back later; the *who is allowed to change what* permission model is deliberately deferred.
+`tips.creator_chat_id` became `origin_chat_id` — the chat the tip was asked for in. A tip raised
+in a group is announced *in that group*, where the owner and everyone else sees it, which is the
+social proof that produces the next tip.
 
-### `/chatid`
+This also fixed a real gap in the previous design: Telegram refuses to message anyone who has
+never opened a chat with the bot, so confirmations sent only as private messages silently failed
+for recipients who had never pressed Start. The money arrived and nobody was told.
 
-Added because the config file is unusable without it: the operator is typically not in the
-customer's group and has no other way to learn its id. Available to anyone — a chat id is not a
-secret, and needing an admin to fetch it would defeat the point.
+Notification targets are de-duplicated, so a tip raised in the owner's own chat produces one
+message rather than three.
 
-### YAML over JSON
+### The address is still recorded per tip
 
-The file is hand-edited and needs comments saying which group each opaque negative number is.
-Parsed from a `JsonNode` by hand rather than data-bound, so a mistake reads as
-*"entry 2 (Bob's Chat): 'address' is missing"* instead of a Jackson stack trace.
+Even with a single wallet, `tips.raw_address` stays. Changing the configured wallet must not
+redirect an invoice that is already in flight, and the poller groups pending tips by address, so
+a wallet change is handled with no special cases.
+
+### Startup refuses a bad wallet
+
+A typo'd TON address is a valid-looking string that silently swallows every tip sent to it, so
+the deployment aborts rather than running. A missing config file is refused with instructions
+rather than a stack trace.
 
 ---
 
@@ -347,7 +351,7 @@ Genuinely small once 0–5 exist.
 ## Running it
 
 ```bash
-./gradlew test                 # 137 tests, all green
+./gradlew test                 # 110 tests, all green
 ./gradlew runBot               # the Telegram bot
 ./gradlew run --args="<address> <comment> <amountTon> [timeoutSec] [pollSec]"
 ```
@@ -374,7 +378,7 @@ Env vars:
 | `TONAPI_BASE_URL` | `https://tonapi.io` | use `https://testnet.tonapi.io` for testnet |
 | `TONAPI_KEY` | — | optional bearer token, raises the free rate limit |
 | `TIP_LOOKBACK_SEC` | `300` | how far back the invoice window opens. **Testing only** — a narrow window in production is what stops replay |
-| `TIPBOT_WALLETS` | `tipbot.yaml` | the operator's wallet file |
+| `TIPBOT_WALLETS` | `tipbot.yaml` | the owner's config file |
 | `TIP_POLL_SEC` | `10` | how often the poller checks. Raise it, or set `TONAPI_KEY`, before pointing many creators at one deployment |
 
 ### Environment note

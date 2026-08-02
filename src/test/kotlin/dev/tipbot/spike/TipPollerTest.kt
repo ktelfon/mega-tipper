@@ -38,13 +38,14 @@ class TipPollerTest {
         dir.toFile().deleteRecursively()
     }
 
-    private fun poller(now: Long = NOW) = TipPoller(
+    private fun poller(now: Long = NOW, ownerChatId: Long? = null) = TipPoller(
         store = store,
         events = { address ->
             lookups += address
             responses[address] ?: AccountEvents.Ok(ObjectMapper().readTree("""{"events":[]}"""))
         },
         notifier = { chatId, text -> sent += chatId to text },
+        ownerChatId = ownerChatId,
         clock = { now },
     )
 
@@ -74,10 +75,8 @@ class TipPollerTest {
         }]}
     """.trimIndent()
 
-    private fun pendingTip(creator: Long = CREATOR, tipper: Long? = TIPPER, amount: Long = ONE_TON): Tip {
-        store.upsertCreator(creator, RAW, NOW)
-        return store.createTip(creator, tipper, RAW, amount, NOW)
-    }
+    private fun pendingTip(origin: Long = GROUP, tipper: Long? = TIPPER, amount: Long = ONE_TON): Tip =
+        store.createTip(origin, tipper, RAW, amount, NOW)
 
     @Test
     fun `a matching payment confirms the tip and records who paid`() {
@@ -93,25 +92,45 @@ class TipPollerTest {
     }
 
     @Test
-    fun `both sides are told, once each`() {
-        val tip = pendingTip()
+    fun `the confirmation lands where the tip was asked for`() {
+        // Social proof: a tip raised in a group is announced in that group, not hidden in a DM.
+        val tip = pendingTip(origin = GROUP, tipper = TIPPER)
         givenEvents(RAW, payment(tip.nonce))
 
         poller().pollOnce()
 
-        assertEquals(setOf(CREATOR, TIPPER), sent.map { it.first }.toSet())
-        assertEquals(2, sent.size)
+        assertEquals(setOf(GROUP, TIPPER), sent.map { it.first }.toSet())
         assertTrue(sent.all { it.second.contains("1 TON") }, sent.toString())
     }
 
     @Test
-    fun `a self-test tip does not notify the same person twice`() {
-        val tip = pendingTip(creator = CREATOR, tipper = CREATOR)
+    fun `a tip raised in a private chat tells that person once, not twice`() {
+        val tip = pendingTip(origin = TIPPER, tipper = TIPPER)
         givenEvents(RAW, payment(tip.nonce))
 
         poller().pollOnce()
 
-        assertEquals(1, sent.size, "one person, one message: $sent")
+        assertEquals(1, sent.size, "one chat, one message: $sent")
+    }
+
+    @Test
+    fun `the owner is told privately when they asked to be`() {
+        val tip = pendingTip(origin = GROUP, tipper = TIPPER)
+        givenEvents(RAW, payment(tip.nonce))
+
+        poller(ownerChatId = OWNER).pollOnce()
+
+        assertTrue(sent.any { it.first == OWNER }, sent.toString())
+    }
+
+    @Test
+    fun `the owner is not told twice when the tip was raised in their own chat`() {
+        val tip = pendingTip(origin = OWNER, tipper = OWNER)
+        givenEvents(RAW, payment(tip.nonce))
+
+        poller(ownerChatId = OWNER).pollOnce()
+
+        assertEquals(1, sent.size, "same chat three ways, one message: $sent")
     }
 
     @Test
@@ -199,7 +218,7 @@ class TipPollerTest {
     }
 
     @Test
-    fun `two tips on one creator cost a single request`() {
+    fun `two tips on one wallet cost a single request`() {
         // The rate limit is the constraint, and two tippers at once is the normal case.
         pendingTip(tipper = TIPPER)
         pendingTip(tipper = OTHER_TIPPER)
@@ -210,9 +229,9 @@ class TipPollerTest {
     }
 
     @Test
-    fun `one creator's lookup failing does not stop another confirming`() {
-        store.upsertCreator(OTHER_CREATOR, OTHER_RAW, NOW)
-        val broken = store.createTip(OTHER_CREATOR, TIPPER, OTHER_RAW, ONE_TON, NOW)
+    fun `one address failing does not stop another confirming`() {
+        // Two addresses coexist while a configured wallet is changed with invoices in flight.
+        val broken = store.createTip(OTHER_GROUP, TIPPER, OTHER_RAW, ONE_TON, NOW)
         val fine = pendingTip()
 
         responses[OTHER_RAW] = AccountEvents.Failed("connection reset")
@@ -224,9 +243,8 @@ class TipPollerTest {
     }
 
     @Test
-    fun `a rate limit ends the pass instead of hammering the remaining creators`() {
-        store.upsertCreator(OTHER_CREATOR, OTHER_RAW, NOW)
-        store.createTip(OTHER_CREATOR, TIPPER, OTHER_RAW, ONE_TON, NOW)
+    fun `a rate limit ends the pass instead of hammering the remaining addresses`() {
+        store.createTip(OTHER_GROUP, TIPPER, OTHER_RAW, ONE_TON, NOW)
         pendingTip()
 
         responses[RAW] = AccountEvents.RateLimited
@@ -261,8 +279,9 @@ class TipPollerTest {
     }
 
     private companion object {
-        const val CREATOR = 12345L
-        const val OTHER_CREATOR = 22222L
+        const val GROUP = -1001234567890L
+        const val OTHER_GROUP = -1009876543210L
+        const val OWNER = 12345L
         const val TIPPER = 99999L
         const val OTHER_TIPPER = 88888L
         const val ONE_TON = 1_000_000_000L

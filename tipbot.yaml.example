@@ -1,27 +1,21 @@
-# Wallets this deployment collects tips for.
+# Who this bot collects tips for.
 #
-# Copy to tipbot.yaml, fill in, restart the bot. This file is the source of truth: every
-# entry is re-applied to the database on each boot, so editing here and restarting is the
-# whole configuration workflow.
+# One bot, one person, one wallet. A bot named @tipping_bot_for_user123 exists to collect for
+# user123 and nobody else - so the wallet is baked in here at deploy time, and nothing anyone
+# says in Telegram can point the money somewhere else.
 #
-# A bad address aborts startup rather than letting the bot run and silently swallow tips,
-# so if it starts, every wallet below is real and checksum-valid.
+# Copy to tipbot.yaml, fill in, run the bot. To change the wallet later, edit and restart.
+#
+# If the address has a typo the bot refuses to start. That is deliberate: a typo'd TON address
+# is a valid-looking string, and tips sent to one are gone for good.
 
-# Whether anyone can change a wallet from inside Telegram with /setup.
-# Leave false for an operator-run deployment - otherwise a group admin could point their
-# group's earnings at a different wallet without telling you.
-allowSelfSetup: false
+# Shown wherever a reply names who is being tipped: "Tip of 1 TON to @user123".
+name: "@user123"
 
-wallets:
-  # A group. Add the bot to it, send /chatid there, and paste the number here.
-  # Group ids are negative; supergroups look like -100...
-  - chatId: -1001234567890
-    label: "Bob's Crypto Chat"          # for your logs only, name it however you like
-    address: "EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N"
+# Where the money goes. EQ..., UQ... and raw 0:... are all accepted - same wallet either way.
+wallet: "EQCD39VS5jcptHL8vMjEXrzGaRcCVYto7HUn4bpAOg8xqB2N"
 
-  # A person, so that replying to them in any group with /tip pays them directly.
-  # A user id is positive, and is the same number as their private chat with the bot.
-  # EQ..., UQ... and raw 0:... are all accepted - they are the same wallet either way.
-  - chatId: 4242424242
-    label: "@bob"
-    address: "EQCXJkOVvWWiVaQpsRMmyEEot9cP_teUmrrjA21Qa6OGIeng"
+# Optional. The owner's private chat id, so they are also told privately when a tip lands.
+# Without it, confirmations still appear in whichever chat the tip was raised in.
+# The owner can find their id by messaging the bot; it is the same number as that chat.
+# ownerChatId: 123456789

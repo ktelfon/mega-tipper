@@ -6,15 +6,9 @@ import javax.sql.DataSource
 
 enum class TipStatus { PENDING, CONFIRMED, EXPIRED }
 
-data class Creator(
-    val telegramChatId: Long,
-    val rawAddress: String,
-    val createdAt: Long,
-)
-
 data class Tip(
     val nonce: String,
-    val creatorChatId: Long,
+    val originChatId: Long,
     val tipperChatId: Long?,
     val rawAddress: String,
     val amountNano: Long,
@@ -36,52 +30,13 @@ data class Tip(
 }
 
 /**
- * Storage for creators and tips. Works against SQLite or Postgres unchanged - see [Database].
+ * Storage for tips. Works against SQLite or Postgres unchanged - see [Database].
  *
- * Serving many creators from one deployment is the default: [creators] is keyed by
- * telegram_chat_id, so a single running bot handles as many people as you point at it.
+ * There is no wallet table: this bot collects for exactly one person, whose address comes from
+ * [OwnerConfig] at startup. Each tip still records the address it was issued against, so
+ * changing the configured wallet cannot silently redirect an invoice already in flight.
  */
 class TipStore(private val dataSource: DataSource) {
-
-    /**
-     * Registers or updates a creator's payout wallet.
-     *
-     * [rawAddress] must already be canonical raw form from [AddressNormalizer]; storing a
-     * user-friendly spelling here would silently break matching, since TonAPI reports raw.
-     */
-    fun upsertCreator(telegramChatId: Long, rawAddress: String, now: Long) {
-        // ON CONFLICT DO UPDATE is supported by both SQLite (3.24+) and Postgres (9.5+).
-        dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                """
-                INSERT INTO creators (telegram_chat_id, raw_address, created_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT (telegram_chat_id) DO UPDATE SET raw_address = excluded.raw_address
-                """.trimIndent()
-            ).use { st ->
-                st.setLong(1, telegramChatId)
-                st.setString(2, rawAddress)
-                st.setLong(3, now)
-                st.executeUpdate()
-            }
-        }
-    }
-
-    fun findCreator(telegramChatId: Long): Creator? =
-        dataSource.connection.use { conn ->
-            conn.prepareStatement(
-                "SELECT telegram_chat_id, raw_address, created_at FROM creators WHERE telegram_chat_id = ?"
-            ).use { st ->
-                st.setLong(1, telegramChatId)
-                st.executeQuery().use { rs ->
-                    if (rs.next()) {
-                        Creator(rs.getLong(1), rs.getString(2), rs.getLong(3))
-                    } else {
-                        null
-                    }
-                }
-            }
-        }
 
     /**
      * Issues a pending tip and returns it, with a freshly generated nonce.
@@ -90,7 +45,7 @@ class TipStore(private val dataSource: DataSource) {
      *   what stops an old transfer carrying the same comment being replayed as a new tip.
      */
     fun createTip(
-        creatorChatId: Long,
+        originChatId: Long,
         tipperChatId: Long?,
         rawAddress: String,
         amountNano: Long,
@@ -99,7 +54,7 @@ class TipStore(private val dataSource: DataSource) {
     ): Tip {
         val tip = Tip(
             nonce = generateNonce(),
-            creatorChatId = creatorChatId,
+            originChatId = originChatId,
             tipperChatId = tipperChatId,
             rawAddress = rawAddress,
             amountNano = amountNano,
@@ -114,13 +69,13 @@ class TipStore(private val dataSource: DataSource) {
         dataSource.connection.use { conn ->
             conn.prepareStatement(
                 """
-                INSERT INTO tips (nonce, creator_chat_id, tipper_chat_id, raw_address,
+                INSERT INTO tips (nonce, origin_chat_id, tipper_chat_id, raw_address,
                                   amount_nano, status, created_at, expires_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """.trimIndent()
             ).use { st ->
                 st.setString(1, tip.nonce)
-                st.setLong(2, tip.creatorChatId)
+                st.setLong(2, tip.originChatId)
                 if (tip.tipperChatId != null) st.setLong(3, tip.tipperChatId) else st.setNull(3, java.sql.Types.BIGINT)
                 st.setString(4, tip.rawAddress)
                 st.setLong(5, tip.amountNano)
@@ -203,7 +158,7 @@ class TipStore(private val dataSource: DataSource) {
 
     private fun java.sql.ResultSet.toTip() = Tip(
         nonce = getString("nonce"),
-        creatorChatId = getLong("creator_chat_id"),
+        originChatId = getLong("origin_chat_id"),
         tipperChatId = getLong("tipper_chat_id").takeIf { !wasNull() },
         rawAddress = getString("raw_address"),
         amountNano = getLong("amount_nano"),
@@ -219,7 +174,7 @@ class TipStore(private val dataSource: DataSource) {
         val RANDOM = SecureRandom()
 
         const val SELECT_TIP = """
-            SELECT nonce, creator_chat_id, tipper_chat_id, raw_address, amount_nano,
+            SELECT nonce, origin_chat_id, tipper_chat_id, raw_address, amount_nano,
                    status, event_id, sender_address, created_at, expires_at, confirmed_at
               FROM tips
         """

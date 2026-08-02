@@ -18,6 +18,8 @@ class TipPoller(
     private val store: TipStore,
     private val events: EventSource,
     private val notifier: Notifier,
+    /** Told privately about every tip, when configured. Null means nobody is. */
+    private val ownerChatId: Long? = null,
     private val clock: () -> Long = { Instant.now().epochSecond },
 ) {
 
@@ -88,15 +90,29 @@ class TipPoller(
         return confirmed
     }
 
+    /**
+     * Announced **where the tip was asked for**, not to a fixed chat. A tip raised in a group is
+     * confirmed in that group, where the owner and everyone else can see it - which is the
+     * social proof that makes the next person tip.
+     *
+     * Telegram refuses to message anyone who has never opened a chat with the bot, so a private
+     * message is never the only place a confirmation goes.
+     */
     private fun announce(tip: Tip, match: TipMatcher.Match) {
         val amount = TipAmount.format(match.amountNano)
+        val told = mutableSetOf<Long>()
 
-        notify(tip.creatorChatId, "Tip received: $amount TON.\n\nIt is already in your wallet - I only watched for it.")
-
-        // A self-test tip would otherwise send the same person two messages.
-        if (tip.tipperChatId != null && tip.tipperChatId != tip.creatorChatId) {
-            notify(tip.tipperChatId, "Your tip of $amount TON arrived. Thanks!")
+        fun tell(chatId: Long, text: String) {
+            if (told.add(chatId)) notify(chatId, text)
         }
+
+        tell(tip.originChatId, "Tip received: $amount TON. Thank you!")
+
+        // The tipper, when they tipped from somewhere other than their own chat with the bot.
+        tip.tipperChatId?.let { tell(it, "Your tip of $amount TON arrived. Thanks!") }
+
+        // The owner, if they asked to be told and were not already in one of the chats above.
+        ownerChatId?.let { tell(it, "You received a tip: $amount TON.\n\nIt is already in your wallet.") }
     }
 
     /**

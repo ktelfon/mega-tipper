@@ -47,26 +47,21 @@ abstract class TipStoreContractTest {
     }
 
     @Test
-    fun `stores and reads back a creator`() {
-        store.upsertCreator(CHAT, RAW, NOW)
+    fun `a tip records the chat it was raised in, which is where it gets announced`() {
+        val tip = store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW)
 
-        val creator = store.findCreator(CHAT)
-        assertNotNull(creator)
-        assertEquals(RAW, creator.rawAddress)
-        assertEquals(CHAT, creator.telegramChatId)
+        val reread = store.findTip(tip.nonce)
+        assertNotNull(reread)
+        assertEquals(CHAT, reread.originChatId)
+        assertEquals(TIPPER, reread.tipperChatId)
     }
 
     @Test
-    fun `re-running setup updates the wallet instead of duplicating the creator`() {
-        store.upsertCreator(CHAT, RAW, NOW)
-        store.upsertCreator(CHAT, OTHER_RAW, NOW + 10)
+    fun `a tip keeps the address it was issued against`() {
+        // So changing the configured wallet cannot redirect an invoice already in flight.
+        val tip = store.createTip(CHAT, TIPPER, OTHER_RAW, ONE_TON, NOW)
 
-        assertEquals(OTHER_RAW, store.findCreator(CHAT)?.rawAddress)
-    }
-
-    @Test
-    fun `unknown creator reads back as null`() {
-        assertNull(store.findCreator(999))
+        assertEquals(OTHER_RAW, store.findTip(tip.nonce)?.rawAddress)
     }
 
     @Test
@@ -179,7 +174,6 @@ abstract class TipStoreContractTest {
     fun `state survives a restart`() {
         // The reason for not using an in-memory store: this must hold across a redeploy,
         // or the double-payout guard resets every time the process restarts.
-        store.upsertCreator(CHAT, RAW, NOW)
         val tip = store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW)
         store.confirm(tip.nonce, EVENT, SENDER, NOW)
         (dataSource as? HikariDataSource)?.close()
@@ -187,7 +181,6 @@ abstract class TipStoreContractTest {
         dataSource = connect()
         val reopened = TipStore(dataSource)
 
-        assertEquals(RAW, reopened.findCreator(CHAT)?.rawAddress)
         assertEquals(TipStatus.CONFIRMED, reopened.findTip(tip.nonce)?.status)
         assertFalse(reopened.confirm(tip.nonce, EVENT, SENDER, NOW), "guard must survive a restart")
     }

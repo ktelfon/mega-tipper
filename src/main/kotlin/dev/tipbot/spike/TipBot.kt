@@ -6,10 +6,8 @@ import org.telegram.telegrambots.longpolling.TelegramBotsLongPollingApplication
 import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery
 import org.telegram.telegrambots.meta.api.methods.GetMe
-import org.telegram.telegrambots.meta.api.methods.groupadministration.GetChatMember
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage
 import org.telegram.telegrambots.meta.api.objects.Update
-import org.telegram.telegrambots.meta.api.objects.User
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardRow
@@ -54,11 +52,6 @@ class TipBot(
             userId = message.from?.id ?: chatId,
             text = message.text,
             isGroup = isGroup,
-            // Only a reply to a *person* names a tip recipient. A reply to another bot, or to
-            // one of our own messages, would otherwise be read as "tip that account".
-            replyToUserId = message.replyToMessage?.from?.takeIf { !it.getIsBot() }?.id,
-            replyToName = message.replyToMessage?.from?.takeIf { !it.getIsBot() }?.let { displayName(it) },
-            senderIsAdmin = { isAdmin(chatId, message.from?.id) },
         )
 
         val reply = safely(chatId) { handler.handle(incoming, Instant.now().epochSecond) }
@@ -84,27 +77,6 @@ class TipBot(
             handler.handleCallback(chatId, query.from.id, query.data, Instant.now().epochSecond)
         }
         if (reply != null) send(chatId, reply)
-    }
-
-    private fun displayName(user: User): String =
-        user.userName?.let { "@$it" } ?: listOfNotNull(user.firstName, user.lastName).joinToString(" ").ifBlank { "them" }
-
-    /**
-     * Whether [userId] can change the group's payout wallet. Asked lazily and only for `/setup`,
-     * since it costs a Telegram round trip.
-     *
-     * Fails closed: if the lookup errors we treat the sender as an ordinary member, because the
-     * cost of being wrong is someone redirecting a group's tips to their own wallet.
-     */
-    private fun isAdmin(chatId: Long, userId: Long?): Boolean {
-        if (userId == null) return false
-        return try {
-            val member = client.execute(GetChatMember(chatId.toString(), userId))
-            member.status in setOf("creator", "administrator")
-        } catch (e: Exception) {
-            log.warn("Could not check admin status of {} in {}", userId, chatId, e)
-            false
-        }
     }
 
     /** One bad message must not take the bot down for everyone else. */
@@ -162,26 +134,15 @@ fun main() {
     // with the bot the token actually belongs to.
     val username = client.execute(GetMe()).userName
 
-    // The operator's wallet file is authoritative and re-applied on every boot, so editing it
-    // and restarting is the whole configuration workflow. A bad address aborts startup rather
-    // than running a deployment that silently swallows tips.
-    val directory = WalletDirectory.load(File(config.walletFile), config.testnet)
-    WalletDirectory.apply(directory, store, Instant.now().epochSecond)
-
-    if (directory.entries.isEmpty()) {
-        println("No wallets configured in ${config.walletFile}. Add one, or send /chatid in a chat to find its id.")
-    } else {
-        println("Collecting tips for ${directory.entries.size} chat(s):")
-        directory.entries.forEach { println("  ${it.chatId}  ${it.label}  -> ${it.raw}") }
+    // One bot, one person, one wallet, baked in at deploy time. A bad address aborts startup
+    // rather than running a deployment that silently swallows every tip sent to it.
+    val owner = OwnerConfig.load(File(config.walletFile), config.testnet)
+    println("Collecting tips for ${owner.name} -> ${owner.raw}")
+    if (owner.chatId == null) {
+        println("No ownerChatId set - confirmations go to whichever chat the tip was raised in.")
     }
-    if (directory.allowSelfSetup) println("Self-setup is ON: /setup can change a wallet from chat.")
 
-    val handler = CommandHandler(
-        store,
-        testnet = config.testnet,
-        botUsername = username,
-        allowSelfSetup = directory.allowSelfSetup,
-    )
+    val handler = CommandHandler(store, owner, testnet = config.testnet, botUsername = username)
 
     // The chain watcher runs alongside the bot rather than inside it: confirming a payment is
     // driven by the blockchain, not by anyone sending a message, so it cannot live in the
@@ -192,6 +153,7 @@ fun main() {
         notifier = { chatId, text ->
             client.execute(SendMessage.builder().chatId(chatId.toString()).text(text).build())
         },
+        ownerChatId = owner.chatId,
     )
     Thread({ poller.runForever(config.pollSeconds) }, "tip-poller").apply { isDaemon = true }.start()
 
