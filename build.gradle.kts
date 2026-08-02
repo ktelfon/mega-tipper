@@ -54,6 +54,20 @@ tasks.register<JavaExec>("runBot") {
     standardInput = System.`in`
 }
 
+// `./gradlew e2e` - the whole bot driven with real Telegram update JSON, no network.
+// Separate from `test` so it can be run alone when checking a change by hand would be slow.
+tasks.register<Test>("e2e") {
+    group = "verification"
+    description = "End-to-end: real Telegram JSON in, sent messages and confirmed payments out"
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    useJUnitPlatform()
+    filter { includeTestsMatching("*EndToEndTest*") }
+    testLogging { events("passed", "failed") }
+    // Always re-run: the point is to check the current state, not to be skipped as up to date.
+    outputs.upToDateWhen { false }
+}
+
 tasks.test {
     useJUnitPlatform()
     testLogging {

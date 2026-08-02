@@ -263,9 +263,19 @@ double-payout guard with it. On those, point `TIPBOT_JDBC_URL` at Postgres; noth
 ## Development
 
 ```bash
-./gradlew test      # 120 tests
+./gradlew test      # 127 tests
+./gradlew e2e       # end-to-end only: real Telegram JSON in, sent messages out
 ./gradlew runBot    # start the bot
 ```
+
+`e2e` drives the real update router with the JSON Telegram actually sends — a group `/tip`, a
+button tap, a channel post, a callback — captures every message the bot tries to send, and then
+runs the poller against a canned TonAPI payment to check the confirmation lands in the right
+chat. No network, no token, no wallet.
+
+It exists because the unit tests all called `CommandHandler` directly, so nothing exercised
+`TipBot.consume()` — which is precisely where channel posts were being dropped while 116 tests
+stayed green.
 
 To include the Postgres storage tests (they skip when no server is reachable):
 

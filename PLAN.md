@@ -356,6 +356,32 @@ rather than a stack trace.
 
 ---
 
+## End-to-end testing ✅ DONE
+
+`./gradlew e2e` drives the whole stack the way Telegram drives it: raw update JSON into the real
+`TipBot.consume()`, every outbound message captured, then the poller run against a canned TonAPI
+payment to check the confirmation lands in the right chat.
+
+**Why it exists.** Every unit test called `CommandHandler` directly, so nothing ever exercised
+the update router. Channel posts arrive as `channel_post` rather than `message` and were dropped
+there silently while **116 tests stayed green** — the bug was found by hand, in a real channel,
+and looked exactly like the bot being broken. A test that starts from Telegram's own JSON would
+have caught it on the first run.
+
+`TelegramClient` has 40 `execute` overloads, so the fake is a `java.lang.reflect.Proxy` rather
+than 40 stub methods. Only the three the bot actually calls do anything.
+
+Covered: group `/tip` → button tap → invoice → payment → public confirmation; channel post →
+tip card → deep link → amount menu; private `/tip 2.5`; group chatter producing silence; updates
+with no text; and an invoice that is never paid going PENDING → EXPIRED with nobody notified.
+
+**What it still cannot do:** act as a Telegram *user*. Bots cannot message bots, so genuinely
+typing into a chat needs an MTProto client (Telethon or similar) signed in as a real account -
+api_id, api_hash and a phone-code login. And nothing can automate a human confirming a transfer
+in their wallet.
+
+---
+
 ## Step 6 — Production hardening ← current, partly done
 
 - [x] **Expiry sweeper** — `pollOnce()` calls `expireStale()` on every pass, so dead invoices
@@ -381,7 +407,8 @@ Genuinely small once 0–5 exist.
 ## Running it
 
 ```bash
-./gradlew test                 # 120 tests, all green
+./gradlew test                 # 127 tests, all green
+./gradlew e2e                  # end-to-end only
 ./gradlew runBot               # the Telegram bot
 ./gradlew run --args="<address> <comment> <amountTon> [timeoutSec] [pollSec]"
 ```
