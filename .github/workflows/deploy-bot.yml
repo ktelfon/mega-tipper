@@ -1,0 +1,115 @@
+# The bots: built automatically, released deliberately.
+#
+# A push to main builds and publishes an image but does not touch the droplet. Restarting a bot
+# is not free - a tipper may be part-way through an invoice - so the release is a button you
+# press (Actions -> deploy bot -> Run workflow), not a side effect of a commit.
+#
+# Building here rather than on the droplet is the other half of this. DEPLOY.md records that a
+# 1 GB droplet cannot compile Kotlin without a swap file; a runner has cores and memory to
+# spare, and the box only ever pulls a finished image.
+#
+# Rollback: run the workflow with an older commit sha in the tag box. That skips the build and
+# the tests and just repoints the droplet at an image that already exists.
+
+name: deploy bot
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'gradle/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradlew'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - '.github/deploy/bot.sh'
+      - '.github/workflows/deploy-bot.yml'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Image tag to deploy. Blank builds this branch; a commit sha rolls back to it.'
+        required: false
+        default: ''
+
+concurrency:
+  group: droplet-deploy
+  cancel-in-progress: false
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  # A rollback targets an image that already passed this suite, so it skips straight to the
+  # deploy - being fast is the entire point of a rollback.
+  test:
+    if: inputs.tag == ''
+    uses: ./.github/workflows/test.yml
+
+  image:
+    if: inputs.tag == ''
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to the registry
+        run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
+
+      - name: Build and push
+        # Tagged with the sha as well as latest, so every deploy traces back to a commit and
+        # any past one can be redeployed by name.
+        run: |
+          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+          docker push "$IMAGE:${{ github.sha }}"
+          docker push "$IMAGE:latest"
+          echo "Published \`$IMAGE:${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    needs: [test, image]
+    # Only ever on a button press: a push builds and stops there. `always()` is needed because
+    # both jobs above are skipped on a rollback, and a skipped dependency would otherwise skip
+    # this too - hence checking their results explicitly rather than relying on the default.
+    if: >-
+      always()
+      && github.event_name == 'workflow_dispatch'
+      && needs.test.result != 'failure' && needs.test.result != 'cancelled'
+      && needs.image.result != 'failure' && needs.image.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare the SSH key
+        env:
+          KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DROPLET_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Work out which tag is going out
+        id: pick
+        run: |
+          TAG='${{ inputs.tag }}'
+          [ -z "$TAG" ] && TAG='${{ github.sha }}'
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Deploying \`$TAG\`" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy
+        env:
+          HOST: ${{ secrets.DROPLET_HOST }}
+          USER: ${{ secrets.DROPLET_USER }}
+          DIR: ${{ vars.DROPLET_PATH || 'mega-tipper' }}
+          TAG: ${{ steps.pick.outputs.tag }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes "$USER@$HOST" \
+            "DIR='$DIR' TAG='$TAG' bash -s" < .github/deploy/bot.sh

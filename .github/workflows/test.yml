@@ -1,0 +1,78 @@
+# The test suite, on every push and every pull request.
+#
+# The point of running it here rather than only on a laptop is Postgres. TipStoreContractTest
+# runs against both engines, but PostgresTipStoreTest skips itself when no server answers - so
+# a green local build routinely means the Postgres half never ran at all. CI is the one place
+# that can guarantee a server is there, so this is where that half actually gets exercised.
+
+name: test
+
+on:
+  # main is deliberately absent: a push there that touches the bot runs this anyway, through
+  # the workflow_call in deploy-bot.yml. Listing it here too would run the whole suite twice
+  # for every commit.
+  push:
+    branches-ignore: [main]
+  pull_request:
+  workflow_call:      # so the deploy workflows gate on this instead of duplicating it
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      # Port, database and password match the defaults in PostgresTipStoreTest, so the suite
+      # finds this with no configuration. Change one, change the other.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: tipbot
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+
+      - name: Run the suite
+        # cleanTest because Gradle will happily call a cached test run up to date, and a cached
+        # pass would hide exactly the skip this job exists to prevent.
+        run: ./gradlew --no-daemon cleanTest test
+
+      - name: Prove the Postgres contract tests actually ran
+        # A skipped test is a green test. Without this step the whole Postgres service above
+        # could quietly fail to connect and nothing would ever say so.
+        run: |
+          report=build/test-results/test/TEST-dev.tipbot.spike.PostgresTipStoreTest.xml
+          if [ ! -f "$report" ]; then
+            echo "::error::No Postgres test report at $report - did the class get renamed?"
+            exit 1
+          fi
+          total=$(sed -n 's/.*[^a-z]tests="\([0-9]*\)".*/\1/p' "$report" | head -1)
+          skipped=$(sed -n 's/.*skipped="\([0-9]*\)".*/\1/p' "$report" | head -1)
+          echo "Postgres contract: ${total} tests, ${skipped:-0} skipped"
+          if [ "${total:-0}" -eq 0 ] || [ "${skipped:-0}" -gt 0 ]; then
+            echo "::error::Postgres contract tests were skipped - the server was not reachable."
+            exit 1
+          fi
+
+      - name: Upload the report when something breaks
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: build/reports/tests/test
+          retention-days: 7

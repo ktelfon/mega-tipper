@@ -24,6 +24,9 @@ fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /
 echo "/swapfile none swap sw 0 0" >> /etc/fstab
 ```
 
+Only if you build **on** the box. Once CI is set up (see *Continuous deployment* below) the
+droplet pulls a finished image and never compiles anything, so this stops being necessary.
+
 ### Why 78 MB and not less
 
 That is a JVM floor, not this application's data — the bot itself holds almost nothing. A Go or
@@ -67,8 +70,8 @@ chmod 600 .env
 cp tipbot.yaml.example customers/mdefman.yaml
 $EDITOR customers/mdefman.yaml     # set name and wallet
 
-# 5. Go
-docker compose up -d --build
+# 5. Go - pull the published image rather than building it here
+docker compose pull && docker compose up -d
 docker compose logs -f mdefman
 ```
 
@@ -117,11 +120,79 @@ nothing else.
 
 ---
 
-## Updating
+## Continuous deployment
+
+Three workflows in `.github/workflows/`, split by how much damage a bad commit can do:
+
+| Push touching | What happens |
+|---|---|
+| `web/**` | Site deploys itself. Static files on a bind mount — nothing restarts. |
+| `src/**`, `Dockerfile`, … | Tests run, an image is built and published. **The droplet is not touched.** |
+| anything, on a branch or PR | Tests run. |
+
+Releasing a bot is a button: **Actions → deploy bot → Run workflow**. Restarting a bot can
+interrupt someone mid-invoice, so it is a decision, not a side effect of a commit.
+
+**The droplet no longer builds anything.** CI publishes to `ghcr.io/ktelfon/mega-tipper` and the
+box pulls a finished image, which is what removes the swap-file problem above — there is no JDK
+and no Gradle on the server at all.
+
+### Rolling back
+
+Run **deploy bot** with an older commit sha in the *tag* box. It skips the build and the tests
+and repoints the droplet at an image that already exists, so it takes about as long as a `docker
+pull`. Every commit that ever deployed is still tagged in the registry.
+
+The deployed tag is written to `TIPBOT_IMAGE_TAG` in the droplet's `.env`, so a `docker compose
+up` typed by hand later brings back the same image rather than drifting to `:latest`.
+
+### One-time setup
+
+Under **Settings → Secrets and variables → Actions**:
+
+| Secret | What it is |
+|---|---|
+| `DROPLET_HOST` | the droplet's IP or hostname |
+| `DROPLET_USER` | the SSH user (`root`, or a deploy user) |
+| `DROPLET_SSH_KEY` | the **private** key, whole file including the BEGIN/END lines |
+| `DROPLET_SSH_KNOWN_HOSTS` | output of `ssh-keyscan <droplet-ip>` |
+
+Optionally a **variable** (not a secret) `DROPLET_PATH` if the clone is not at `~/mega-tipper`.
+Give it a path relative to the login home directory or an absolute one — **not** `~/…`, which
+arrives quoted and never expands.
+
+Generate a key that exists only for this, so it can be revoked without touching your own:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/tipbot_deploy -C "github-actions" -N ""
+ssh-copy-id -i ~/.ssh/tipbot_deploy.pub <user>@<droplet-ip>
+ssh-keyscan <droplet-ip>                      # -> DROPLET_SSH_KNOWN_HOSTS
+cat ~/.ssh/tipbot_deploy                      # -> DROPLET_SSH_KEY
+```
+
+`known_hosts` is pinned rather than `StrictHostKeyChecking=no` on purpose: without it the
+workflow would hand a deploy key to whatever answered on that address.
+
+Finally, make the package readable so the droplet can pull without logging in — on the repo's
+**Packages** page, *Package settings → Change visibility → Public*. The image holds no secrets
+(tokens are passed at run time and `.dockerignore` keeps `.env` out of every layer). If you would
+rather keep it private, run `docker login ghcr.io` once on the droplet with a read-only PAT.
+
+### The Postgres tests actually run in CI
+
+`PostgresTipStoreTest` skips itself when no server answers, so a green local build routinely
+means that half never ran. The workflow starts a real Postgres **and then asserts the tests
+were not skipped** — a silent skip fails the build rather than passing it.
+
+---
+
+## Updating by hand
+
+Still works, and is the right move when CI is not involved:
 
 ```bash
 git pull
-docker compose up -d --build
+docker compose pull && docker compose up -d
 ```
 
 Each bot restarts in a few seconds. **Pending invoices survive** — they live in the volume, not

@@ -1,0 +1,54 @@
+# The marketing site deploys itself.
+#
+# It is static files on a read-only bind mount, so "deploying" is a git pull - no image, no
+# rebuild, nothing in flight to interrupt. The blast radius of a bad commit here is an ugly
+# page, which is why this one goes out on its own while the bots wait for a human to press a
+# button (see deploy-bot.yml).
+
+name: deploy site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - '.github/deploy/site.sh'
+      - '.github/workflows/deploy-site.yml'
+  workflow_dispatch:
+
+# One deploy at a time, shared with deploy-bot. Two SSH sessions running git pull in the same
+# directory is a bad way to find out what a lock file is for.
+concurrency:
+  group: droplet-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare the SSH key
+        env:
+          KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DROPLET_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # A pinned host key rather than StrictHostKeyChecking=no. Without it this job hands
+          # a deploy key to whatever happens to answer on that address.
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy
+        env:
+          HOST: ${{ secrets.DROPLET_HOST }}
+          USER: ${{ secrets.DROPLET_USER }}
+          # Relative to the login home dir, or absolute. Not "~/..." - it arrives quoted and a
+          # tilde does not survive that.
+          DIR: ${{ vars.DROPLET_PATH || 'mega-tipper' }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -o BatchMode=yes "$USER@$HOST" \
+            "DIR='$DIR' bash -s" < .github/deploy/site.sh

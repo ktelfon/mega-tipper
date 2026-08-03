@@ -13,7 +13,11 @@
 
 services:
   mdefman:
-    image: tipbot:latest
+    # Built by CI and pulled here, so the droplet never needs a JDK, Gradle, or the swap file
+    # that compiling Kotlin on 1 GB otherwise demands. The tag is pinned in .env by the deploy
+    # workflow, which is what makes a rollback "set it to an older sha and up -d".
+    # `build: .` stays so that a laptop can still `docker compose build` without a registry.
+    image: ghcr.io/ktelfon/mega-tipper:${TIPBOT_IMAGE_TAG:-latest}
     build: .
     restart: unless-stopped
     environment:
