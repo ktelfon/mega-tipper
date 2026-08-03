@@ -12,6 +12,7 @@ import kotlin.test.AfterTest
 import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -154,6 +155,32 @@ class EndToEndTest {
     }
 
     @Test
+    fun `a fourth tip request in a row is refused, through the real update router`() {
+        // The flood guard as Telegram would exercise it: four genuine callback_query updates
+        // from one person, pushed through consume() rather than into the handler directly.
+        repeat(3) { buttonTap("tip:1000000000", chat = GROUP, type = "supergroup") }
+
+        assertEquals(3, store.pendingTips(0).size)
+        assertTrue(lastSent.text.contains("Comment:"), "the third must still be a payment card")
+
+        buttonTap("tip:1000000000", chat = GROUP, type = "supergroup")
+
+        assertEquals(3, store.pendingTips(0).size, "the fourth must never reach the store")
+        assertTrue(lastSent.text.contains("already have"), lastSent.text)
+        assertNull(lastSent.replyMarkup, "a refusal must not offer a way to pay")
+    }
+
+    @Test
+    fun `a second person is unaffected by someone else hitting the cap`() {
+        repeat(4) { buttonTap("tip:1000000000", chat = GROUP, type = "supergroup", from = SAM) }
+
+        buttonTap("tip:1000000000", chat = GROUP, type = "supergroup", from = DANA)
+
+        assertTrue(lastSent.text.contains("Comment:"), "a busy group is not abuse: ${lastSent.text}")
+        assertEquals(4, store.pendingTips(0).size, "Sam's three, plus Dana's one")
+    }
+
+    @Test
     fun `a channel post publishes a card that links into a private chat`() {
         // The regression test for the bug the unit tests could not see: channel_post never
         // reached the handler at all, and the bot looked simply broken.
@@ -239,6 +266,7 @@ class EndToEndTest {
 
     private companion object {
         const val SAM = 99999L
+        const val DANA = 88888L
         const val GROUP = -1001234567890L
         const val CHANNEL = -1001111111111L
         const val RAW = "0:15fedae08ddc2ca14cbe9f9f4ec6a9c1c499230ded686992cfd6ff5a2848f828"
