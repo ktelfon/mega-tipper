@@ -14,3 +14,7 @@ build/
 .git/
 .idea/
 .vscode/
+
+# The marketing site is served by the caddy image straight from a bind mount. It is not part
+# of the bot image and only slows the build context down if it is sent.
+web/

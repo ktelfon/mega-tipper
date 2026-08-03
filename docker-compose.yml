@@ -36,7 +36,32 @@ services:
       driver: json-file
       options: { max-size: "10m", max-file: "3" }
 
+  # The marketing site. Everything it needs lives under web/ and nothing under web/ is part
+  # of the bot - no shared volume, no shared image, no shared build. Stopping this service
+  # cannot affect a tip, because the bots talk to Telegram outbound and never through here.
+  # This is the only service on the host that listens on a port.
+  web:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      # Not used while the site is reached by IP, but published now so that swapping the
+      # Caddyfile to a real domain needs a restart rather than an edit here.
+      - "443:443"
+    volumes:
+      - ./web/site:/srv:ro
+      - ./web/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Where the certificate lands once there is a domain. Without a volume Caddy would
+      # request a new one on every restart and hit Let's Encrypt's rate limit.
+      - caddy-data:/data
+    # Serving static files from a tmpfs-sized cache; measured well under this.
+    mem_limit: 64m
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
+
 volumes:
   # A named volume, not a bind mount: the container runs as an unprivileged user, and Docker
   # sets ownership on a named volume so the bot can actually write its database.
   mdefman-data:
+  caddy-data:

@@ -149,6 +149,46 @@ docker run --rm -v mega-tipper_mdefman-data:/data alpine \
 
 ---
 
+## The web page
+
+Everything the public site needs lives under **`web/`** and nothing in there belongs to the bot:
+
+```
+web/
+  Caddyfile        the server config
+  site/            what gets served - index.html, styles.css, main.js, fonts/
+```
+
+The bot has no idea it exists: separate container, separate image, no shared volume, and
+`.dockerignore` keeps `web/` out of the bot's build context entirely. `web/site/` is served by a
+`caddy` container on port 80. Edit a file and it is live immediately — it is a read-only bind
+mount, so there is no rebuild and no restart.
+
+Fonts are **self-hosted** in `web/site/fonts/`. That is deliberate: a webfont CDN would make every
+visitor's browser announce itself to a third party, and a blocked request would silently fall back
+to a system font and quietly wreck the layout.
+
+```bash
+docker compose up -d web           # start it
+curl http://<droplet-ip>/          # should be 200
+```
+
+If the droplet has `ufw` enabled, `ufw allow 80,443/tcp`. A DigitalOcean **cloud firewall** is a
+separate thing configured in their control panel, and blocks the port even when `ufw` allows it.
+
+### Adding a domain later
+
+A certificate authority will not issue a certificate for a bare IP address, so the site is
+plain HTTP until it has a name. Once a domain's A record points at the droplet:
+
+1. Change `:80 {` in the `Caddyfile` to `yourdomain.com {`
+2. `docker compose restart web`
+
+Caddy requests a Let's Encrypt certificate on first request and renews it from then on. Nothing
+else changes — the cert lives in the `caddy-data` volume, which is why that volume exists.
+
+---
+
 ## Backups
 
 The only irreplaceable state is each volume's `tipbot.db`. Wallet files are in git-ignored
@@ -186,8 +226,10 @@ both engines — see [PLAN.md](PLAN.md), step 2.
 - The container runs as an **unprivileged user**. Nothing it does needs root.
 - **Tokens are passed at run time**, never baked into an image layer. `.dockerignore` excludes
   `.env` and every real `customers/*.yaml` so they cannot end up in a layer by accident.
-- **No inbound port is opened.** Long polling is outbound-only, so there is no listening socket
-  to attack and nothing to firewall.
+- **No bot opens an inbound port.** Long polling is outbound-only, so no bot has a listening
+  socket to attack. The `web` service does listen on 80/443, but it is a separate container that
+  serves static files and has no access to any bot's volume, token or database — compromising it
+  reveals a public web page.
 - The bot **cannot move anyone's money**. It holds no keys and has no wallet — the worst a stolen
   token achieves is impersonating the bot in chat, which is fixed with `/revoke` in BotFather.
 - Logs record the **command word only**, never message text.

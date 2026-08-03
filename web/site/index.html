@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bot Tipper — tipping for Telegram</title>
+<meta name="description" content="Your community already wants to pay you. Bot Tipper turns that into one tap, and the money lands in your wallet — never ours.">
+<meta name="color-scheme" content="dark">
+<meta property="og:title" content="Bot Tipper">
+<meta property="og:description" content="Tipping for Telegram. One tap, straight to your wallet.">
+<meta property="og:type" content="website">
+<link rel="preload" href="fonts/archivo-var-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="fonts/manrope-var-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<canvas id="caustics" aria-hidden="true"></canvas>
+<div class="grain" aria-hidden="true"></div>
+
+<header class="topbar">
+  <a class="wordmark" href="#top">
+    <span class="wordmark__gem" aria-hidden="true"></span>
+    Bot&nbsp;Tipper
+  </a>
+  <a class="btn btn--ghost topbar__cta" href="#start">Add to Telegram</a>
+</header>
+
+<main id="top">
+
+  <!-- ── Hero: the thesis ───────────────────────────────────────────────── -->
+  <section class="hero">
+    <div class="hero__crystal" aria-hidden="true">
+      <svg viewBox="0 0 200 200" class="crystal">
+        <defs>
+          <linearGradient id="fA" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#7FD8FF"/><stop offset="1" stop-color="#1E7FD0"/>
+          </linearGradient>
+          <linearGradient id="fB" x1="1" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#A98BFF"/><stop offset="1" stop-color="#2A5FC8"/>
+          </linearGradient>
+          <linearGradient id="fC" x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0" stop-color="#0B1B33"/><stop offset="1" stop-color="#4FA8E8"/>
+          </linearGradient>
+          <linearGradient id="fD" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#D6F0FF"/><stop offset="1" stop-color="#69B8F0"/>
+          </linearGradient>
+        </defs>
+        <g class="crystal__body">
+          <path class="facet facet--1" d="M100 14 L166 66 L100 100 Z" fill="url(#fD)"/>
+          <path class="facet facet--2" d="M100 14 L34 66 L100 100 Z" fill="url(#fA)"/>
+          <path class="facet facet--3" d="M166 66 L100 188 L100 100 Z" fill="url(#fB)"/>
+          <path class="facet facet--4" d="M34 66 L100 188 L100 100 Z" fill="url(#fC)"/>
+          <path class="facet__edge" d="M100 14 L34 66 L100 188 L166 66 Z"/>
+          <path class="facet__edge" d="M34 66 L166 66 M100 14 L100 188"/>
+        </g>
+      </svg>
+      <span class="crystal__glow"></span>
+    </div>
+
+    <p class="eyebrow reveal">Tipping for Telegram</p>
+    <h1 class="hero__title">
+      <span class="line"><span>Your</span> <span>community</span></span>
+      <span class="line"><span>already</span> <span>wants</span></span>
+      <span class="line"><span>to</span> <span class="hl">pay&nbsp;you.</span></span>
+    </h1>
+    <p class="hero__sub reveal">Bot&nbsp;Tipper turns that impulse into a single tap — and the money
+      lands in your wallet, not ours.</p>
+    <div class="hero__actions reveal">
+      <a class="btn btn--solid" href="#start">Add to Telegram</a>
+      <a class="btn btn--ghost" href="#how">See how it works</a>
+    </div>
+    <p class="hero__note reveal">Non-custodial. It never holds your money.</p>
+  </section>
+
+  <!-- ── The moment ─────────────────────────────────────────────────────── -->
+  <section class="scene" id="moment">
+    <div class="scene__text">
+      <p class="eyebrow">The moment</p>
+      <h2>Someone in your chat<br>decides you're worth it.</h2>
+      <p class="lede">That decision has a shelf life of about four seconds. Bot&nbsp;Tipper is
+        already in the room, so nothing has to be found, installed, or signed up for. They tap.
+        You're paid.</p>
+    </div>
+
+    <div class="chat pane" data-lit>
+      <div class="chat__row">
+        <span class="chat__avatar chat__avatar--a">M</span>
+        <div class="bubble">Honestly this stream saved my week</div>
+      </div>
+      <div class="chat__row">
+        <span class="chat__avatar chat__avatar--b">J</span>
+        <div class="bubble bubble--cmd">/tip</div>
+      </div>
+      <div class="chat__row chat__row--bot">
+        <span class="chat__avatar chat__avatar--bot" aria-hidden="true"></span>
+        <div class="bubble bubble--bot">
+          <p class="bubble__q">How much?</p>
+          <div class="chips">
+            <span class="chip">1</span>
+            <span class="chip chip--armed">5</span>
+            <span class="chip">10</span>
+          </div>
+        </div>
+      </div>
+      <div class="receipt">
+        <div class="receipt__ping" aria-hidden="true"></div>
+        <div class="receipt__body">
+          <p class="receipt__label">Landed in your wallet</p>
+          <p class="receipt__amt"><span class="num">5.00</span> <span class="tkr">TON</span></p>
+        </div>
+        <span class="receipt__tick" aria-hidden="true"></span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Three steps: a real sequence, so it earns its numbering ────────── -->
+  <section class="steps" id="how">
+    <p class="eyebrow">Start to paid</p>
+    <h2 class="steps__title">Three things, once.</h2>
+    <ol class="steps__list">
+      <li class="step pane" data-lit>
+        <span class="step__n">1</span>
+        <h3>Point it at your wallet</h3>
+        <p>Tell Bot&nbsp;Tipper where your money should go. This is the only setup there is, and
+          you do it one time.</p>
+      </li>
+      <li class="step pane" data-lit>
+        <span class="step__n">2</span>
+        <h3>Drop it in your chat</h3>
+        <p>Your group, your channel, your DMs. It sits there quietly and says nothing until
+          somebody actually wants to tip.</p>
+      </li>
+      <li class="step pane" data-lit>
+        <span class="step__n">3</span>
+        <h3>Get paid</h3>
+        <p>A supporter taps an amount. The money moves to you directly, and you get a message the
+          second it arrives.</p>
+      </li>
+    </ol>
+  </section>
+
+  <!-- ── What you keep ──────────────────────────────────────────────────── -->
+  <section class="keep">
+    <div class="keep__head">
+      <p class="eyebrow">What you keep</p>
+      <h2>All of it.</h2>
+      <p class="lede">Most tipping tools sit between you and your supporters, take a percentage,
+        and hold the balance until you ask for it. This one can't do any of that.</p>
+    </div>
+    <div class="keep__grid">
+      <article class="card pane" data-lit>
+        <p class="card__stat"><span class="num">0%</span></p>
+        <h3>No cut</h3>
+        <p>Bot&nbsp;Tipper takes nothing from a tip. What your supporter sends is what you get.</p>
+      </article>
+      <article class="card pane" data-lit>
+        <p class="card__stat"><span class="num">0</span><span class="card__unit">accounts</span></p>
+        <h3>Nothing to join</h3>
+        <p>Your supporters don't register, verify an email, or download anything to give you money.</p>
+      </article>
+      <article class="card pane card--wide" data-lit>
+        <h3>It never touches your money</h3>
+        <p>There's no balance sitting somewhere with your name on it, because the payment goes from
+          your supporter straight to your wallet. Nothing to withdraw, nothing to be frozen,
+          nothing to lose if this bot disappears tomorrow.</p>
+      </article>
+    </div>
+  </section>
+
+  <!-- ── Close ──────────────────────────────────────────────────────────── -->
+  <section class="close" id="start">
+    <div class="close__gem" aria-hidden="true"></div>
+    <h2>Ready when<br>your audience is.</h2>
+    <p class="lede">Set it up once and forget it's there. It'll remind you every time somebody
+      decides you're worth something.</p>
+    <a class="btn btn--solid btn--lg" href="#start">Add Bot&nbsp;Tipper to Telegram</a>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <span class="wordmark wordmark--sm"><span class="wordmark__gem" aria-hidden="true"></span> Bot&nbsp;Tipper</span>
+  <span class="foot__note">Tips move wallet&#8209;to&#8209;wallet on TON.</span>
+</footer>
+
+<script src="main.js"></script>
+</body>
+</html>

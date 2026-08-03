@@ -1,0 +1,11 @@
+# Plain HTTP on every hostname, which is what you get when you reach the box by IP —
+# a certificate authority will not issue a cert for a bare IP address.
+#
+# When the domain is bought and its A record points here, replace the ":80" line with the
+# domain name (e.g. "tipbot.example.com {") and restart. Caddy then fetches a Let's Encrypt
+# certificate on its own and redirects HTTP to HTTPS; there is nothing else to change.
+:80 {
+	root * /srv
+	file_server
+	encode gzip
+}
