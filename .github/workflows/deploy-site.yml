@@ -16,16 +16,16 @@ on:
       - '.github/workflows/deploy-site.yml'
   workflow_dispatch:
 
-# One deploy at a time, shared with deploy-bot. Two SSH sessions running git pull in the same
-# directory is a bad way to find out what a lock file is for.
-concurrency:
-  group: droplet-deploy
-  cancel-in-progress: false
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Shared with deploy-bot's deploy job, so only one SSH session is ever running git pull in
+    # that directory. Held per-job rather than per-workflow, so a bot image build cannot queue
+    # a site deploy behind it and get it cancelled by the next push.
+    concurrency:
+      group: droplet-deploy
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
 
