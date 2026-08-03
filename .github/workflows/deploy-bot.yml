@@ -85,6 +85,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check the droplet secrets exist
+        # Without this, a missing secret reaches ssh as an empty host and the job fails with a
+        # usage dump that says nothing about the actual problem.
+        env:
+          HOST: ${{ secrets.DROPLET_HOST }}
+          USER: ${{ secrets.DROPLET_USER }}
+          KEY: ${{ secrets.DROPLET_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DROPLET_SSH_KNOWN_HOSTS }}
+        run: |
+          # if-blocks, not `[ -z "$X" ] && ...`: the default shell is `bash -e`, and a test
+          # that is false returns 1, which would abort the step precisely when the secret is set.
+          missing=""
+          if [ -z "$HOST" ];        then missing="$missing DROPLET_HOST"; fi
+          if [ -z "$USER" ];        then missing="$missing DROPLET_USER"; fi
+          if [ -z "$KEY" ];         then missing="$missing DROPLET_SSH_KEY"; fi
+          if [ -z "$KNOWN_HOSTS" ]; then missing="$missing DROPLET_SSH_KNOWN_HOSTS"; fi
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing - see the one-time setup table in DEPLOY.md"
+            exit 1
+          fi
+
       - name: Prepare the SSH key
         env:
           KEY: ${{ secrets.DROPLET_SSH_KEY }}
@@ -100,7 +121,9 @@ jobs:
         id: pick
         run: |
           TAG='${{ inputs.tag }}'
-          [ -z "$TAG" ] && TAG='${{ github.sha }}'
+          # Same `bash -e` trap as above: on a rollback TAG is already set, the test returns 1,
+          # and the && line would take the whole step down with it.
+          if [ -z "$TAG" ]; then TAG='${{ github.sha }}'; fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "Deploying \`$TAG\`" >> "$GITHUB_STEP_SUMMARY"
 
