@@ -58,12 +58,25 @@ jobs:
         run: echo '${{ secrets.GITHUB_TOKEN }}' | docker login ghcr.io -u '${{ github.actor }}' --password-stdin
 
       - name: Build and push
-        # Tagged with the sha as well as latest, so every deploy traces back to a commit and
-        # any past one can be redeployed by name.
+        # Tagged with the sha as well as latest, so every deploy traces back to a commit and any
+        # past one can be redeployed by name.
+        #
+        # The source label is not decoration: it is how GHCR links the package back to this
+        # repository, and a package that is not linked does not inherit the repo's permissions.
+        # Without it the first push creates an unlinked package and the next one is denied.
         run: |
-          docker build -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
+          docker build \
+            --label "org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}" \
+            --label "org.opencontainers.image.revision=${{ github.sha }}" \
+            -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:latest" .
           docker push "$IMAGE:${{ github.sha }}"
-          docker push "$IMAGE:latest"
+
+          # `latest` is only the fallback for a droplet whose .env has no pinned tag, so it is
+          # not worth failing a build over. Say so loudly and carry on - the sha tag above is
+          # what a deploy actually uses.
+          if ! docker push "$IMAGE:latest"; then
+            echo "::warning::Could not update the :latest tag. The sha tag published fine and deploys use that. To fix: package settings -> Manage Actions access -> add this repo with the Write role."
+          fi
           echo "Published \`$IMAGE:${{ github.sha }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
