@@ -30,6 +30,9 @@ object TipAmount {
         data class Rejected(val reason: String) : Result
     }
 
+    // Optimization: Pre-compile the regex pattern to avoid rebuilding it on every parse invocation.
+    private val AMOUNT_PATTERN = Regex("""\d*\.?\d+""")
+
     fun parse(input: String): Result {
         // "1 TON", "1ton" - people include the unit, and it carries no information we need.
         val cleaned = input.trim().removeSuffix("TON").removeSuffix("ton").removeSuffix("Ton").trim()
@@ -40,7 +43,7 @@ object TipAmount {
 
         // BigDecimal accepts scientific notation ("1e9") and a leading +, which no one types
         // by accident. Restricting the alphabet up front keeps the surprising parses out.
-        if (!cleaned.matches(Regex("""\d*\.?\d+"""))) {
+        if (!cleaned.matches(AMOUNT_PATTERN)) {
             return Result.Rejected(
                 "I couldn't read \"$cleaned\" as an amount. Use plain digits with a dot, like 1 or 0.5."
             )
