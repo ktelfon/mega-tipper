@@ -79,7 +79,7 @@ class CommandHandler(
             "start", "help" -> welcome(message)
             // In a channel this publishes a tip card rather than starting a conversation.
             "tip" -> if (message.isChannel) tipCard() else tip(message, argument, now)
-            "wallet" -> Reply("Tips go straight to ${owner.name}'s wallet:\n\n${friendlyAddress()}")
+            "wallet" -> Reply("Tips go straight to ${owner.name}'s wallet:\n\n${friendlyAddress}")
             "link" -> Reply("Anyone can tip ${owner.name} here:\n\nhttps://t.me/$botUsername")
             // An unknown "/command" in a group belongs to someone else. Only answer in private.
             else -> if (message.isGroup || message.isChannel) null
@@ -148,7 +148,10 @@ class CommandHandler(
         Button.Callback("${TipAmount.format(nano)} TON", "$CALLBACK_TIP:$nano")
     }
 
-    private fun friendlyAddress() = AddressNormalizer.toUserFriendly(owner.raw, testnet)
+    // Optimization: Cache the friendlyAddress as it is invariant for a given bot instance
+    // (the single-owner wallet raw address and network do not change). This avoids parsing
+    // the address and checking checksums/re-encoding on every user action / tip creation.
+    private val friendlyAddress = AddressNormalizer.toUserFriendly(owner.raw, testnet)
 
     /**
      * Creates the pending tip and hands back the payment links.
@@ -184,7 +187,7 @@ class CommandHandler(
             now = now,
         )
 
-        val address = friendlyAddress()
+        val address = friendlyAddress
         val amount = TipAmount.format(amountNano)
         val minutes = (tip.expiresAt - tip.createdAt) / 60
 
