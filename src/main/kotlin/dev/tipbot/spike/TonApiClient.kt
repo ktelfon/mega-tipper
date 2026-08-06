@@ -2,6 +2,7 @@ package dev.tipbot.spike
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.net.URI
 import java.net.URLEncoder
@@ -10,6 +11,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.time.Duration
+import java.util.zip.GZIPInputStream
 
 /** A page of account events, or the reason there isn't one. */
 sealed interface AccountEvents {
@@ -54,15 +56,29 @@ class TonApiClient(
         val request = HttpRequest.newBuilder(uri)
             .GET()
             .timeout(Duration.ofSeconds(20))
+            .header("Accept-Encoding", "gzip")
             .apply { if (!apiKey.isNullOrBlank()) header("Authorization", "Bearer $apiKey") }
             .build()
 
         return try {
-            val response = http.send(request, HttpResponse.BodyHandlers.ofString())
-            when (val status = response.statusCode()) {
-                200 -> AccountEvents.Ok(mapper.readTree(response.body()))
+            val response = http.send(request, HttpResponse.BodyHandlers.ofByteArray())
+            val status = response.statusCode()
+            when (status) {
+                200 -> {
+                    val contentEncoding = response.headers().firstValue("Content-Encoding").orElse("")
+                    val bodyBytes = response.body()
+                    val decompressedBytes = if (contentEncoding.equals("gzip", ignoreCase = true)) {
+                        GZIPInputStream(ByteArrayInputStream(bodyBytes)).use { it.readAllBytes() }
+                    } else {
+                        bodyBytes
+                    }
+                    AccountEvents.Ok(mapper.readTree(decompressedBytes))
+                }
                 429 -> AccountEvents.RateLimited
-                else -> AccountEvents.Failed("HTTP $status: ${response.body().take(200)}")
+                else -> {
+                    val bodyString = String(response.body(), StandardCharsets.UTF_8)
+                    AccountEvents.Failed("HTTP $status: ${bodyString.take(200)}")
+                }
             }
         } catch (e: IOException) {
             AccountEvents.Failed(e.message ?: e::class.simpleName ?: "request failed")
