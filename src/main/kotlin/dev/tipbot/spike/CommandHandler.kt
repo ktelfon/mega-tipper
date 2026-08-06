@@ -22,6 +22,10 @@ class CommandHandler(
     private val botUsername: String,
 ) {
 
+    // Cache the user-friendly address representation to avoid expensive parsing and formatting
+    // on every incoming command, message, or inline button callback.
+    private val userFriendlyAddress = AddressNormalizer.toUserFriendly(owner.raw, testnet)
+
     /**
      * One message, with the context needed to answer it safely in a group.
      *
@@ -148,7 +152,7 @@ class CommandHandler(
         Button.Callback("${TipAmount.format(nano)} TON", "$CALLBACK_TIP:$nano")
     }
 
-    private fun friendlyAddress() = AddressNormalizer.toUserFriendly(owner.raw, testnet)
+    private fun friendlyAddress() = userFriendlyAddress
 
     /**
      * Creates the pending tip and hands back the payment links.
