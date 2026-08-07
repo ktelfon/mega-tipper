@@ -70,6 +70,10 @@ object Database {
 
                 // The poller's hot query: pending tips that have not expired.
                 st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_tips_status ON tips(status, expires_at)")
+
+                // The flood-guard query (countLivePending) uses tipper_chat_id, status, and expires_at.
+                // An index over these columns avoids full table scans during flood-guard checks.
+                st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_tips_flood_guard ON tips(tipper_chat_id, status, expires_at)")
             }
 
             upgradeFromMultiWallet(conn)
