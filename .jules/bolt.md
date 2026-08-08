@@ -1,0 +1,4 @@
+## 2026-08-08 - GZIP Compression and Direct JSON Stream Parsing for High-Frequency Poller
+**Learning:** High-frequency polling of JSON APIs (like TonAPI) transfers substantial payloads (e.g. 50-100 KB per request, every 10 seconds). This can consume ~864 MB of network bandwidth per day per bot instance and put excessive strain on JVM memory due to constant String allocations during JSON parsing.
+Requesting GZIP compression reduces the transferred payload size by up to 90%. Moreover, parsing Jackson JSON models directly from the decompressed `InputStream` instead of allocating intermediate strings prevents garbage collection pressure and minimizes memory footprint.
+**Action:** Always configure HttpClient requests in polling loops with `Accept-Encoding: gzip`, handle `GZIPInputStream` decompression when `Content-Encoding: gzip` is present, and deserialize directly from the stream using Jackson's `readTree(InputStream)`.
