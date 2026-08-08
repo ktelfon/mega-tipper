@@ -54,15 +54,37 @@ class TonApiClient(
         val request = HttpRequest.newBuilder(uri)
             .GET()
             .timeout(Duration.ofSeconds(20))
+            .header("Accept-Encoding", "gzip")
             .apply { if (!apiKey.isNullOrBlank()) header("Authorization", "Bearer $apiKey") }
             .build()
 
         return try {
-            val response = http.send(request, HttpResponse.BodyHandlers.ofString())
-            when (val status = response.statusCode()) {
-                200 -> AccountEvents.Ok(mapper.readTree(response.body()))
+            val response = http.send(request, HttpResponse.BodyHandlers.ofByteArray())
+            val status = response.statusCode()
+            val bodyBytes = response.body() ?: ByteArray(0)
+
+            when (status) {
+                200 -> {
+                    // Check if the server compressed the response using gzip
+                    val isGzipped = response.headers()
+                        .firstValue("Content-Encoding")
+                        .map { it.equals("gzip", ignoreCase = true) }
+                        .orElse(false)
+
+                    val inputStream = if (isGzipped) {
+                        java.util.zip.GZIPInputStream(java.io.ByteArrayInputStream(bodyBytes))
+                    } else {
+                        java.io.ByteArrayInputStream(bodyBytes)
+                    }
+
+                    // Parse directly from InputStream to avoid materializing the JSON string in memory, reducing GC pressure
+                    AccountEvents.Ok(mapper.readTree(inputStream))
+                }
                 429 -> AccountEvents.RateLimited
-                else -> AccountEvents.Failed("HTTP $status: ${response.body().take(200)}")
+                else -> {
+                    val errorText = bodyBytes.decodeToString().take(200)
+                    AccountEvents.Failed("HTTP $status: $errorText")
+                }
             }
         } catch (e: IOException) {
             AccountEvents.Failed(e.message ?: e::class.simpleName ?: "request failed")
