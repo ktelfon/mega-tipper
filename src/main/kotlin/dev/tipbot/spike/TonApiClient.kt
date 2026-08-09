@@ -54,15 +54,44 @@ class TonApiClient(
         val request = HttpRequest.newBuilder(uri)
             .GET()
             .timeout(Duration.ofSeconds(20))
+            .header("Accept-Encoding", "gzip")
             .apply { if (!apiKey.isNullOrBlank()) header("Authorization", "Bearer $apiKey") }
             .build()
 
         return try {
-            val response = http.send(request, HttpResponse.BodyHandlers.ofString())
-            when (val status = response.statusCode()) {
-                200 -> AccountEvents.Ok(mapper.readTree(response.body()))
-                429 -> AccountEvents.RateLimited
-                else -> AccountEvents.Failed("HTTP $status: ${response.body().take(200)}")
+            val response = http.send(request, HttpResponse.BodyHandlers.ofInputStream())
+            val status = response.statusCode()
+
+            when (status) {
+                200 -> {
+                    val contentEncoding = response.headers().firstValue("Content-Encoding").orElse("")
+                    val stream = if (contentEncoding.equals("gzip", ignoreCase = true)) {
+                        java.util.zip.GZIPInputStream(response.body())
+                    } else {
+                        response.body()
+                    }
+                    stream.use { s ->
+                        AccountEvents.Ok(mapper.readTree(s))
+                    }
+                }
+                429 -> {
+                    response.body().close()
+                    AccountEvents.RateLimited
+                }
+                else -> {
+                    val contentEncoding = response.headers().firstValue("Content-Encoding").orElse("")
+                    val bodyString = try {
+                        val stream = if (contentEncoding.equals("gzip", ignoreCase = true)) {
+                            java.util.zip.GZIPInputStream(response.body())
+                        } else {
+                            response.body()
+                        }
+                        stream.use { s -> s.bufferedReader().readText() }
+                    } catch (e: IOException) {
+                        "Failed to read error response: ${e.message}"
+                    }
+                    AccountEvents.Failed("HTTP $status: ${bodyString.take(200)}")
+                }
             }
         } catch (e: IOException) {
             AccountEvents.Failed(e.message ?: e::class.simpleName ?: "request failed")
