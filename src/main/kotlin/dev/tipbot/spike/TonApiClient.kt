@@ -3,6 +3,7 @@ package dev.tipbot.spike
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import java.io.IOException
+import java.io.InputStream
 import java.net.URI
 import java.net.URLEncoder
 import java.net.http.HttpClient
@@ -10,6 +11,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.nio.charset.StandardCharsets
 import java.time.Duration
+import java.util.zip.GZIPInputStream
 
 /** A page of account events, or the reason there isn't one. */
 sealed interface AccountEvents {
@@ -51,18 +53,43 @@ class TonApiClient(
         val encoded = URLEncoder.encode(rawAddress, StandardCharsets.UTF_8)
         val uri = URI.create("$baseUrl/v2/accounts/$encoded/events?limit=$EVENT_PAGE_SIZE")
 
+        // ⚡ Performance optimization (Bolt):
+        // 1. Request GZIP compression via "Accept-Encoding" header to reduce network bandwidth.
+        // 2. Use `ofInputStream()` and stream-parse with Jackson instead of reading the entire response
+        //    into a single large temporary JVM `String` first. This avoids massive heap allocations
+        //    and mitigates GC pauses, especially since polling happens at high frequencies (default 10s).
         val request = HttpRequest.newBuilder(uri)
             .GET()
             .timeout(Duration.ofSeconds(20))
+            .header("Accept-Encoding", "gzip")
             .apply { if (!apiKey.isNullOrBlank()) header("Authorization", "Bearer $apiKey") }
             .build()
 
         return try {
-            val response = http.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = http.send(request, HttpResponse.BodyHandlers.ofInputStream())
             when (val status = response.statusCode()) {
-                200 -> AccountEvents.Ok(mapper.readTree(response.body()))
-                429 -> AccountEvents.RateLimited
-                else -> AccountEvents.Failed("HTTP $status: ${response.body().take(200)}")
+                200 -> {
+                    response.body().use { rawStream ->
+                        val contentEncoding = response.headers().firstValue("Content-Encoding").orElse("")
+                        val decompressedStream = if (contentEncoding.equals("gzip", ignoreCase = true)) {
+                            GZIPInputStream(rawStream)
+                        } else {
+                            rawStream
+                        }
+                        AccountEvents.Ok(mapper.readTree(decompressedStream))
+                    }
+                }
+                429 -> {
+                    response.body().close()
+                    AccountEvents.RateLimited
+                }
+                else -> {
+                    response.body().use { stream ->
+                        val bytes = stream.readNBytes(200)
+                        val bodyText = String(bytes, StandardCharsets.UTF_8)
+                        AccountEvents.Failed("HTTP $status: $bodyText")
+                    }
+                }
             }
         } catch (e: IOException) {
             AccountEvents.Failed(e.message ?: e::class.simpleName ?: "request failed")
