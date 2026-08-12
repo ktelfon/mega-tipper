@@ -54,15 +54,33 @@ class TonApiClient(
         val request = HttpRequest.newBuilder(uri)
             .GET()
             .timeout(Duration.ofSeconds(20))
+            .header("Accept-Encoding", "gzip")
             .apply { if (!apiKey.isNullOrBlank()) header("Authorization", "Bearer $apiKey") }
             .build()
 
         return try {
-            val response = http.send(request, HttpResponse.BodyHandlers.ofString())
+            val response = http.send(request, HttpResponse.BodyHandlers.ofInputStream())
             when (val status = response.statusCode()) {
-                200 -> AccountEvents.Ok(mapper.readTree(response.body()))
-                429 -> AccountEvents.RateLimited
-                else -> AccountEvents.Failed("HTTP $status: ${response.body().take(200)}")
+                200 -> {
+                    val contentEncoding = response.headers().firstValue("Content-Encoding").orElse("")
+                    val stream = if (contentEncoding.equals("gzip", ignoreCase = true)) {
+                        java.util.zip.GZIPInputStream(response.body())
+                    } else {
+                        response.body()
+                    }
+                    stream.use { s ->
+                        AccountEvents.Ok(mapper.readTree(s))
+                    }
+                }
+                429 -> {
+                    response.body().close()
+                    AccountEvents.RateLimited
+                }
+                else -> {
+                    val bytes = response.body().use { it.readNBytes(200) }
+                    val bodyStr = String(bytes, StandardCharsets.UTF_8)
+                    AccountEvents.Failed("HTTP $status: $bodyStr")
+                }
             }
         } catch (e: IOException) {
             AccountEvents.Failed(e.message ?: e::class.simpleName ?: "request failed")
