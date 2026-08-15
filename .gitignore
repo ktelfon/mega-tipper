@@ -19,6 +19,9 @@ build/
 .gradle/
 !gradle/wrapper/gradle-wrapper.jar
 
+# Kotlin build / error logs
+.kotlin/
+
 # IDE
 .idea/
 *.iml
