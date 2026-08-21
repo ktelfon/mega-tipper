@@ -126,6 +126,21 @@ abstract class TipStoreContractTest {
     }
 
     @Test
+    fun `countLivePending counts only live pending tips for the specific tipper`() {
+        store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW)
+        store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW)
+        // Expired tip for same tipper
+        store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW - 10_000, ttlSeconds = 60)
+        // Confirmed tip for same tipper
+        val confirmed = store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW)
+        store.confirm(confirmed.nonce, EVENT, SENDER, NOW)
+        // Tip for another tipper
+        store.createTip(CHAT, TIPPER + 1, RAW, ONE_TON, NOW)
+
+        assertEquals(2, store.countLivePending(TIPPER, NOW))
+    }
+
+    @Test
     fun `poller sees only live pending tips`() {
         val live = store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW)
         val expired = store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW - 10_000, ttlSeconds = 60)
