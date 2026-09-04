@@ -70,6 +70,9 @@ object Database {
 
                 // The poller's hot query: pending tips that have not expired.
                 st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_tips_status ON tips(status, expires_at)")
+
+                // The flood guard's hot query: tipper's live pending tips.
+                st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_tips_tipper_status ON tips(tipper_chat_id, status, expires_at)")
             }
 
             upgradeFromMultiWallet(conn)
