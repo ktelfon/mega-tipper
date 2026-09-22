@@ -171,6 +171,25 @@ abstract class TipStoreContractTest {
     }
 
     @Test
+    fun `countLivePending counts only unexpired pending tips for the specific tipper`() {
+        val tipperA = TIPPER
+        val tipperB = 99999L
+
+        // Tipper A has 2 live pending tips, 1 expired pending tip, and 1 confirmed tip
+        store.createTip(CHAT, tipperA, RAW, ONE_TON, NOW)
+        store.createTip(CHAT, tipperA, RAW, ONE_TON, NOW)
+        store.createTip(CHAT, tipperA, RAW, ONE_TON, NOW - 10_000, ttlSeconds = 60)
+        val settled = store.createTip(CHAT, tipperA, RAW, ONE_TON, NOW)
+        store.confirm(settled.nonce, EVENT, SENDER, NOW)
+
+        // Tipper B has 1 live pending tip
+        store.createTip(CHAT, tipperB, RAW, ONE_TON, NOW)
+
+        assertEquals(2, store.countLivePending(tipperA, NOW))
+        assertEquals(1, store.countLivePending(tipperB, NOW))
+    }
+
+    @Test
     fun `state survives a restart`() {
         // The reason for not using an in-memory store: this must hold across a redeploy,
         // or the double-payout guard resets every time the process restarts.
