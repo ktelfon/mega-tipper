@@ -1,6 +1,7 @@
 package dev.tipbot.spike
 
 import java.math.BigDecimal
+import java.math.BigInteger
 
 /**
  * Parses and renders tip amounts.
@@ -23,6 +24,11 @@ object TipAmount {
     /** A fat-fingered extra digit should be refused, not turned into an invoice. */
     const val MAX_NANO = 10_000L * NANO_PER_TON
 
+    // Pre-compiled regex and pre-allocated BigInteger bounds to avoid allocations during parse calls
+    private val AMOUNT_REGEX = Regex("""\d*\.?\d+""")
+    private val MIN_NANO_BIGINT = BigInteger.valueOf(MIN_NANO)
+    private val MAX_NANO_BIGINT = BigInteger.valueOf(MAX_NANO)
+
     sealed interface Result {
         data class Ok(val nano: Long) : Result
 
@@ -40,7 +46,7 @@ object TipAmount {
 
         // BigDecimal accepts scientific notation ("1e9") and a leading +, which no one types
         // by accident. Restricting the alphabet up front keeps the surprising parses out.
-        if (!cleaned.matches(Regex("""\d*\.?\d+"""))) {
+        if (!AMOUNT_REGEX.matches(cleaned)) {
             return Result.Rejected(
                 "I couldn't read \"$cleaned\" as an amount. Use plain digits with a dot, like 1 or 0.5."
             )
@@ -56,12 +62,12 @@ object TipAmount {
         val nano = ton.movePointRight(9).toBigIntegerExact()
 
         return when {
-            nano < BigDecimal(MIN_NANO).toBigInteger() -> Result.Rejected(
+            nano < MIN_NANO_BIGINT -> Result.Rejected(
                 "That's too small - the network fee would cost more than the tip. " +
                     "Minimum is ${format(MIN_NANO)} TON."
             )
 
-            nano > BigDecimal(MAX_NANO).toBigInteger() -> Result.Rejected(
+            nano > MAX_NANO_BIGINT -> Result.Rejected(
                 "That's over the ${format(MAX_NANO)} TON limit. Check for an extra digit."
             )
 
