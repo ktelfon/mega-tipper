@@ -171,6 +171,24 @@ abstract class TipStoreContractTest {
     }
 
     @Test
+    fun `count live pending accurately filters by tipper, status, and expiry`() {
+        // Active pending tip for target tipper
+        store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW)
+        // Expired tip for target tipper
+        store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW - 10_000, ttlSeconds = 60)
+        // Confirmed tip for target tipper
+        val confirmed = store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW)
+        store.confirm(confirmed.nonce, EVENT, SENDER, NOW)
+
+        // Active pending tip for another tipper
+        val OTHER_TIPPER = 99999L
+        store.createTip(CHAT, OTHER_TIPPER, RAW, ONE_TON, NOW)
+
+        assertEquals(1, store.countLivePending(TIPPER, NOW))
+        assertEquals(1, store.countLivePending(OTHER_TIPPER, NOW))
+    }
+
+    @Test
     fun `state survives a restart`() {
         // The reason for not using an in-memory store: this must hold across a redeploy,
         // or the double-payout guard resets every time the process restarts.
