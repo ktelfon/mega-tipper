@@ -140,6 +140,25 @@ abstract class TipStoreContractTest {
     }
 
     @Test
+    fun `countLivePending counts only live pending tips for the given tipper`() {
+        val tipper1 = TIPPER
+        val tipper2 = 99999L
+
+        // Tipper 1 tips
+        val live1 = store.createTip(CHAT, tipper1, RAW, ONE_TON, NOW)
+        val expired1 = store.createTip(CHAT, tipper1, RAW, ONE_TON, NOW - 10_000, ttlSeconds = 60)
+        val confirmed1 = store.createTip(CHAT, tipper1, RAW, ONE_TON, NOW)
+        store.confirm(confirmed1.nonce, EVENT, SENDER, NOW)
+
+        // Tipper 2 tips
+        store.createTip(CHAT, tipper2, RAW, ONE_TON, NOW)
+
+        assertEquals(1, store.countLivePending(tipper1, NOW))
+        assertEquals(1, store.countLivePending(tipper2, NOW))
+        assertEquals(0, store.countLivePending(77777L, NOW))
+    }
+
+    @Test
     fun `sweeping marks stale invoices expired`() {
         val stale = store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW - 10_000, ttlSeconds = 60)
         val live = store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW)
