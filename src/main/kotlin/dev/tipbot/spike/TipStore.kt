@@ -170,8 +170,18 @@ class TipStore(private val dataSource: DataSource) {
         val bytes = ByteArray(8)
         RANDOM.nextBytes(bytes)
         // Lowercase hex keeps the comment unambiguous to retype, and TipMatcher compares
-        // comments case-sensitively.
-        return "tip_" + bytes.joinToString("") { "%02x".format(it) }
+        // comments case-sensitively. Fast direct conversion avoids String.format overhead.
+        return "tip_" + bytes.toHexString()
+    }
+
+    private fun ByteArray.toHexString(): String {
+        val hexChars = CharArray(size * 2)
+        for (i in indices) {
+            val v = this[i].toInt() and 0xFF
+            hexChars[i * 2] = HEX_CHARS[v ushr 4]
+            hexChars[i * 2 + 1] = HEX_CHARS[v and 0x0F]
+        }
+        return String(hexChars)
     }
 
     private fun java.sql.ResultSet.toTip() = Tip(
@@ -190,6 +200,7 @@ class TipStore(private val dataSource: DataSource) {
 
     private companion object {
         val RANDOM = SecureRandom()
+        val HEX_CHARS = "0123456789abcdef".toCharArray()
 
         const val SELECT_TIP = """
             SELECT nonce, origin_chat_id, tipper_chat_id, raw_address, amount_nano,
