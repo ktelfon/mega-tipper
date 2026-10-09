@@ -17,6 +17,7 @@ customers/*.yaml
 # Build output
 build/
 .gradle/
+.kotlin/
 !gradle/wrapper/gradle-wrapper.jar
 
 # IDE
