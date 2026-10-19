@@ -148,7 +148,9 @@ class CommandHandler(
         Button.Callback("${TipAmount.format(nano)} TON", "$CALLBACK_TIP:$nano")
     }
 
-    private fun friendlyAddress() = AddressNormalizer.toUserFriendly(owner.raw, testnet)
+    // Memoize friendlyAddress per CommandHandler instance since owner.raw and testnet do not change.
+    private val friendlyAddress by lazy { AddressNormalizer.toUserFriendly(owner.raw, testnet) }
+    private fun friendlyAddress() = friendlyAddress
 
     /**
      * Creates the pending tip and hands back the payment links.
