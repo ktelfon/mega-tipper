@@ -12,6 +12,9 @@ import java.math.BigDecimal
  */
 object TipAmount {
 
+    // Pre-compile Regex to avoid re-creating Pattern/Regex on every parse call.
+    private val AMOUNT_REGEX = Regex("""\d*\.?\d+""")
+
     const val NANO_PER_TON = 1_000_000_000L
 
     /**
@@ -40,7 +43,7 @@ object TipAmount {
 
         // BigDecimal accepts scientific notation ("1e9") and a leading +, which no one types
         // by accident. Restricting the alphabet up front keeps the surprising parses out.
-        if (!cleaned.matches(Regex("""\d*\.?\d+"""))) {
+        if (!cleaned.matches(AMOUNT_REGEX)) {
             return Result.Rejected(
                 "I couldn't read \"$cleaned\" as an amount. Use plain digits with a dot, like 1 or 0.5."
             )
