@@ -40,7 +40,7 @@ object TipAmount {
 
         // BigDecimal accepts scientific notation ("1e9") and a leading +, which no one types
         // by accident. Restricting the alphabet up front keeps the surprising parses out.
-        if (!cleaned.matches(Regex("""\d*\.?\d+"""))) {
+        if (!cleaned.matches(AMOUNT_REGEX)) {
             return Result.Rejected(
                 "I couldn't read \"$cleaned\" as an amount. Use plain digits with a dot, like 1 or 0.5."
             )
@@ -72,4 +72,7 @@ object TipAmount {
     /** nanoTON to a human string: 1_500_000_000 -> "1.5", 1_000_000_000 -> "1". */
     fun format(nano: Long): String =
         BigDecimal(nano).movePointLeft(9).stripTrailingZeros().toPlainString()
+
+    // Pre-compiled regex to avoid re-compilation and unnecessary allocations per parse call.
+    private val AMOUNT_REGEX = Regex("""\d*\.?\d+""")
 }
