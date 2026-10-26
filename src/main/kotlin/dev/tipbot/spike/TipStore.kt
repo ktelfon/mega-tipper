@@ -169,9 +169,16 @@ class TipStore(private val dataSource: DataSource) {
     private fun generateNonce(): String {
         val bytes = ByteArray(8)
         RANDOM.nextBytes(bytes)
+        // Direct StringBuilder hex encoding avoids String.format allocations and Byte boxing.
         // Lowercase hex keeps the comment unambiguous to retype, and TipMatcher compares
         // comments case-sensitively.
-        return "tip_" + bytes.joinToString("") { "%02x".format(it) }
+        val sb = StringBuilder(20).append("tip_")
+        for (b in bytes) {
+            val v = b.toInt() and 0xFF
+            sb.append(HEX_CHARS[v ushr 4])
+            sb.append(HEX_CHARS[v and 0x0F])
+        }
+        return sb.toString()
     }
 
     private fun java.sql.ResultSet.toTip() = Tip(
@@ -190,6 +197,7 @@ class TipStore(private val dataSource: DataSource) {
 
     private companion object {
         val RANDOM = SecureRandom()
+        private val HEX_CHARS = "0123456789abcdef".toCharArray()
 
         const val SELECT_TIP = """
             SELECT nonce, origin_chat_id, tipper_chat_id, raw_address, amount_nano,
