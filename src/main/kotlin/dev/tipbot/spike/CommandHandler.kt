@@ -22,6 +22,9 @@ class CommandHandler(
     private val botUsername: String,
 ) {
 
+    /** Pre-computed user-friendly address string to avoid repeated parsing, CRC16 and base64 overhead. */
+    private val friendlyAddress: String = AddressNormalizer.toUserFriendly(owner.raw, testnet)
+
     /**
      * One message, with the context needed to answer it safely in a group.
      *
@@ -79,7 +82,7 @@ class CommandHandler(
             "start", "help" -> welcome(message)
             // In a channel this publishes a tip card rather than starting a conversation.
             "tip" -> if (message.isChannel) tipCard() else tip(message, argument, now)
-            "wallet" -> Reply("Tips go straight to ${owner.name}'s wallet:\n\n${friendlyAddress()}")
+            "wallet" -> Reply("Tips go straight to ${owner.name}'s wallet:\n\n$friendlyAddress")
             "link" -> Reply("Anyone can tip ${owner.name} here:\n\nhttps://t.me/$botUsername")
             // An unknown "/command" in a group belongs to someone else. Only answer in private.
             else -> if (message.isGroup || message.isChannel) null
@@ -148,8 +151,6 @@ class CommandHandler(
         Button.Callback("${TipAmount.format(nano)} TON", "$CALLBACK_TIP:$nano")
     }
 
-    private fun friendlyAddress() = AddressNormalizer.toUserFriendly(owner.raw, testnet)
-
     /**
      * Creates the pending tip and hands back the payment links.
      *
@@ -184,7 +185,7 @@ class CommandHandler(
             now = now,
         )
 
-        val address = friendlyAddress()
+        val address = friendlyAddress
         val amount = TipAmount.format(amountNano)
         val minutes = (tip.expiresAt - tip.createdAt) / 60
 
