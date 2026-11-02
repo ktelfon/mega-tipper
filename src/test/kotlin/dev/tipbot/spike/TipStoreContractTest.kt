@@ -119,6 +119,22 @@ abstract class TipStoreContractTest {
     }
 
     @Test
+    fun `countLivePending only counts unexpired pending tips for the given tipper`() {
+        // Different tipper - should not count
+        store.createTip(CHAT, 99999L, RAW, ONE_TON, NOW)
+        // Same tipper, pending and unexpired - should count
+        store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW, ttlSeconds = 600)
+        store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW, ttlSeconds = 600)
+        // Same tipper, expired - should not count
+        store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW - 1000, ttlSeconds = 60)
+        // Same tipper, confirmed - should not count
+        val settled = store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW)
+        store.confirm(settled.nonce, EVENT, SENDER, NOW)
+
+        assertEquals(2, store.countLivePending(TIPPER, NOW))
+    }
+
+    @Test
     fun `many pending tips coexist with null event ids`() {
         // A unique index over a nullable column must still allow many unpaid invoices.
         repeat(5) { store.createTip(CHAT, TIPPER, RAW, ONE_TON, NOW) }
