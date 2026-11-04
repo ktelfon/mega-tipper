@@ -24,6 +24,24 @@ class SqliteTipStoreTest : TipStoreContractTest() {
     }
 
     @Test
+    fun `migration creates idx_tips_tipper_status index`() {
+        val ds = connect()
+        try {
+            ds.connection.use { conn ->
+                conn.createStatement().use { st ->
+                    st.executeQuery(
+                        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_tips_tipper_status'"
+                    ).use { rs ->
+                        kotlin.test.assertTrue(rs.next(), "idx_tips_tipper_status should be created by migration")
+                    }
+                }
+            }
+        } finally {
+            (ds as? HikariDataSource)?.close()
+        }
+    }
+
+    @Test
     fun `a database from the multi-wallet era is upgraded, not broken`() {
         // CREATE TABLE IF NOT EXISTS does nothing to an existing table, so the renamed column
         // was invisible to it and the first insert failed with "no such column" at runtime.
