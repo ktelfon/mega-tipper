@@ -23,6 +23,10 @@ object TipAmount {
     /** A fat-fingered extra digit should be refused, not turned into an invoice. */
     const val MAX_NANO = 10_000L * NANO_PER_TON
 
+    // Pre-compile the regex pattern once to avoid re-compiling Pattern and allocating Regex objects
+    // on every tip amount parse.
+    private val AMOUNT_REGEX = Regex("""\d*\.?\d+""")
+
     sealed interface Result {
         data class Ok(val nano: Long) : Result
 
@@ -40,7 +44,7 @@ object TipAmount {
 
         // BigDecimal accepts scientific notation ("1e9") and a leading +, which no one types
         // by accident. Restricting the alphabet up front keeps the surprising parses out.
-        if (!cleaned.matches(Regex("""\d*\.?\d+"""))) {
+        if (!AMOUNT_REGEX.matches(cleaned)) {
             return Result.Rejected(
                 "I couldn't read \"$cleaned\" as an amount. Use plain digits with a dot, like 1 or 0.5."
             )
