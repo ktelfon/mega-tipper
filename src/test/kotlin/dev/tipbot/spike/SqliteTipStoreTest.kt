@@ -6,6 +6,7 @@ import javax.sql.DataSource
 import com.zaxxer.hikari.HikariDataSource
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 /**
  * The contract against SQLite, using a real file rather than an in-memory database so the
@@ -21,6 +22,29 @@ class SqliteTipStoreTest : TipStoreContractTest() {
     @kotlin.test.AfterTest
     fun cleanUpFiles() {
         dir.toFile().deleteRecursively()
+    }
+
+    @Test
+    fun `idx_tips_tipper_status index exists and covers countLivePending`() {
+        val ds = connect()
+        try {
+            ds.connection.use { conn ->
+                val indexes = mutableSetOf<String>()
+                conn.createStatement().use { st ->
+                    st.executeQuery("PRAGMA index_list('tips')").use { rs ->
+                        while (rs.next()) {
+                            indexes += rs.getString("name")
+                        }
+                    }
+                }
+                assertTrue(
+                    "idx_tips_tipper_status" in indexes,
+                    "Expected idx_tips_tipper_status to exist in index list: $indexes"
+                )
+            }
+        } finally {
+            (ds as? HikariDataSource)?.close()
+        }
     }
 
     @Test

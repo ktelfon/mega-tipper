@@ -70,6 +70,15 @@ object Database {
 
                 // The poller's hot query: pending tips that have not expired.
                 st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_tips_status ON tips(status, expires_at)")
+
+                // The flood guard's query: count live pending tips for a specific tipper.
+                // Without this, the query planner uses idx_tips_status to scan all active unexpired
+                // tips across every tipper in the system and filters by tipper_chat_id in memory.
+                // A covering composite index on (tipper_chat_id, status, expires_at) enables a direct
+                // B-tree seek by tipper, turning an O(N) scan of all live tips into an O(log N) lookup.
+                st.executeUpdate(
+                    "CREATE INDEX IF NOT EXISTS idx_tips_tipper_status ON tips(tipper_chat_id, status, expires_at)"
+                )
             }
 
             upgradeFromMultiWallet(conn)
