@@ -70,6 +70,12 @@ object Database {
 
                 // The poller's hot query: pending tips that have not expired.
                 st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_tips_status ON tips(status, expires_at)")
+
+                // Inbound flood-control query: count live pending invoices for a specific tipper.
+                // A covering composite index on (tipper_chat_id, status, expires_at) satisfies
+                // `SELECT COUNT(*) FROM tips WHERE tipper_chat_id = ? AND status = 'PENDING' AND expires_at >= ?`
+                // entirely from the index without scanning table rows for all pending tips.
+                st.executeUpdate("CREATE INDEX IF NOT EXISTS idx_tips_tipper_status ON tips(tipper_chat_id, status, expires_at)")
             }
 
             upgradeFromMultiWallet(conn)
